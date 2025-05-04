@@ -1,0 +1,16 @@
+# Ignore renv cache and user-specific folders
+
+renv/library/
+renv/staging/
+results/analysis_results/*
+results/construct_scores/*
+results/plots/*
+results/tables/*
+Data/
+
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+.DS_Store
+*.log
