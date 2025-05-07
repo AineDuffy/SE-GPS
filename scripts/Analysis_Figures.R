@@ -27,7 +27,6 @@ outcome_trained='senomi_phase4';outcome='senomi_phase4'
 plots_dir='results/plots/'
 
 
-
 if (!dir.exists(analysisdir)) {
   dir.create(analysisdir, recursive = TRUE)
 }
@@ -795,9 +794,9 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     
     if(dataset=='Opentargets'){
       
-      filename1=paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
+      filename1=paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
     } else{
-      filename1=paste0(plots_dir,'/Sup_Fig18_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
+      filename1=paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
     }
     
     png(file=filename1, width=500,height=600)
@@ -847,8 +846,8 @@ lapply(c('All','lof','gof'),function(analysis){
     df_pt1<-DOE1 %>% select(-category_full,-gene,-parentterm)
     df_pt1[is.na(df_pt1)] <- 0
     df_pt1[] <- lapply(df_pt1[], function(x) as.numeric(as.character(x)))
-    if(analysis=='lof') { filename=paste0(plots_dir,'/Sup_Fig12_descriptiveplt_upset_plot_lofcounts.png')}
-    if(analysis=='gof') { filename=paste0(plots_dir,'/Sup_Fig13_descriptiveplt_upset_plot_gofcounts.png')}
+    if(analysis=='lof') { filename=paste0(plots_dir,'/Sup_Fig11_descriptiveplt_upset_plot_lofcounts.png')}
+    if(analysis=='gof') { filename=paste0(plots_dir,'/Sup_Fig12_descriptiveplt_upset_plot_gofcounts.png')}
     
   }
   
@@ -1029,7 +1028,7 @@ lapply(c('All','DOE'), function(analysis){
   if(analysis=='All'){
     filename=paste0(plots_dir,'/Sup_Fig6_Mixedmodel_',dataset,'_outcometrained_',outcome_trained,'_multivariatemodel_results.png')  
   } else{
-    filename=paste0(plots_dir,'/Sup_Fig14_Mixedmodel_',dataset,'_outcometrained_',outcome_trained,'_multivariatemodel_results_DOE.png')  
+    filename=paste0(plots_dir,'/Sup_Fig13_Mixedmodel_',dataset,'_outcometrained_',outcome_trained,'_multivariatemodel_results_DOE.png')  
   }
   ggsave(fp, file= filename, width = 7, height=6, dpi=300)
 
@@ -1195,9 +1194,9 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     }else if(analysis=='All' & dataset=='Onsides') {
       ggsave(bp, file=paste0(plots_dir,'/Sup_Fig9_Barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
     }else if(analysis != 'All' & dataset=='Opentargets'){
-      ggsave(bp, file=paste0(plots_dir,'/Sup_Fig15_barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
+      ggsave(bp, file=paste0(plots_dir,'/Sup_Fig14_barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
     }else if(analysis != 'All' & dataset=='Onsides'){
-      ggsave(bp, file=paste0(plots_dir,'/Sup_Fig16_barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
+      ggsave(bp, file=paste0(plots_dir,'/Sup_Fig15_barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
     }
     
     
@@ -1224,118 +1223,7 @@ dist=ggplot(OTGenescores_beta_genetic_CV_geneptnonzero, aes(x = genescoresum)) +
 ggsave(dist, file=paste0(plots_dir,'/Sup_Fig8b_distribution_scores_density_nonzero',dataset,'.png'), width = 6.5, height=5, dpi=300)
 
 
-### Supplementary Fig 10 
-
-Stratified_Regression_analysis<-do.call(rbind, lapply(c('Onsides','Opentargets'), function(dataset){
-  Genescores_beta_genetic_CV=fread(paste0(scorefolder, 'All_genescoresum_across_all_predictors_',dataset,'_outcome_',outcome,'_sideeffectproject.txt.gz'), data.table=F)
-  Dataset_genescores1= Genescores_beta_genetic_CV %>%arrange(genescoresum) %>% mutate(order=c(seq(1:length(genescoresum)))) %>% mutate(percent=order/length(genescoresum) *100)
-  datafile<-list.files(path='Data/', pattern='dataset_se.mi_withgenetics', full.names=T)
-  datafile=datafile[grepl(paste0(dataset), datafile)]
-  dataset1<-fread(datafile, data.table=F)
-  
-  dataset1<-fread(datafile, data.table=F)
-  dataset1_constraint=dataset1 %>% distinct(drugname, gene, parentterm)
-  
-  #add constraint
-  Oe_score=fread('Data/gnomad.v4.0.constraint_metrics.tsv',data.table=F)
-  Oe_score1= Oe_score %>% filter(mane_select==TRUE)  %>% distinct(gene,lof.oe_ci.upper) %>% filter(!is.na(gene)) %>% mutate(genescores_oe_dichotomized=ifelse(lof.oe_ci.upper<0.6,1,0)) %>% select(-lof.oe_ci.upper) %>% distinct()
-  dataset1_constraint=left_join(dataset1, Oe_score1) %>% distinct(drugname, gene, parentterm, genescores_oe_dichotomized)
-  
-  tissuespecific=fread('Data/Calculated_Tau_GTEXV8.txt', data.table=F)
-  tissuespecific1=tissuespecific %>%mutate(tissue_specific=ifelse(Tau>=0.8,1,0)) %>% distinct(symbol, tissue_specific) %>% rename(gene=symbol)
-  Dataset_genescores1_tau=left_join(Dataset_genescores1,tissuespecific1)
-  
-  Dataset_genescores2 <- Dataset_genescores1_tau %>%
-    inner_join(dataset1_constraint, by = c("drugname","gene","parentterm")) %>%
-    dplyr::mutate(
-      tissue_specific = as.factor(ifelse(is.na(tissue_specific), NA, tissue_specific)),
-      score_all=ifelse(genescoresum>0,1,0)
-    )
-  
-  #Stratified gene scores
-  Stratified<-do.call(rbind,lapply(c('genescores_oe_dichotomized','tissue_specific'), function(strat){
-    gene_freq_gps<-do.call(rbind,lapply(sort(unique(Dataset_genescores2[[strat]])), function(strat_level){ 
-      Dataset_genescores3_drugs=Dataset_genescores2 %>% filter(!is.na(.data[[strat]])) %>% distinct(drugname, .data[[strat]]) %>% group_by(drugname) %>% tally() %>%filter(n==1) ##filter to drugs that are just constraint/ not constraint (not both)
-      Dataset_genescores3_drugs1=subset(Dataset_genescores2, (drugname %in% Dataset_genescores3_drugs$drugname ))
-      Dataset_genescores1_strat_gene2 <- Dataset_genescores3_drugs1 %>% filter(.data[[strat]] == strat_level)
-      
-      Dataset_genescores1_stratspecific=Dataset_genescores1_strat_gene2 %>% filter(.data[[strat]]==strat_level) %>% filter(senomi_phase4==1)
-      Dataset_genescores1_strat_gene=subset(Dataset_genescores1_strat_gene2, (parentterm %in% Dataset_genescores1_stratspecific$parentterm)) #restrict to drugs with gene targets and take just those SE
-      cov_pred=paste0('category') 
-      model1 =glm(as.formula(paste0(outcome, ' ~ score_all + ', cov_pred)), data=Dataset_genescores1_strat_gene,family = 'binomial')
-      ta1_gps_gene<-rbind(cbind.data.frame(Analysis='Stratified_group', No.drugs=length(unique(Dataset_genescores1_strat_gene$drugname)), No.genes=length(unique(Dataset_genescores1_strat_gene$gene)), 
-                                           No.parentterms=length(unique(Dataset_genescores1_strat_gene$parentterm)), 
-                                           No.outcome=length(unique(Dataset_genescores1_strat_gene$parentterm[Dataset_genescores1_strat_gene[outcome]==1])),
-                                           No.genes.GE=length(unique(Dataset_genescores1_strat_gene$gene[Dataset_genescores1_strat_gene$genescoresum!=0])), 
-                                           No.parentterms.GE=length(unique(Dataset_genescores1_strat_gene$parentterm[Dataset_genescores1_strat_gene$genescoresum!=0])), 
-                                           
-                                           outcome=outcome,outcome_trained=outcome_trained, dataset=dataset, Stratified_group=strat, Level=strat_level,category=NA,
-                                           OR=exp(summary(model1)$coefficient[2,1]), 
-                                           lowerCI=exp(summary(model1)$coefficient[2,1]-(1.96* summary(model1)$coefficient[2,2])),
-                                           upperCI=exp(summary(model1)$coefficient[2,1]+(1.96* summary(model1)$coefficient[2,2])),P.val=summary(model1)$coefficient[2,4]))
-      
-    }))
-    return(gene_freq_gps)
-  }))
-}))
-
-
-Stratified_Regression_analysis$Predictor=paste0(Stratified_Regression_analysis$Stratified_group, ': ', Stratified_Regression_analysis$Level, sep = ' ')
-Stratified_Regression_analysis$grouppred=gsub(':.*','',Stratified_Regression_analysis$Predictor)
-Stratified_Regression_analysis = Stratified_Regression_analysis %>% filter(grouppred %in% c('genescores_oe_dichotomized','tissue_specific' )) %>% filter(is.na(category))
-Stratified_Regression_analysis <- Stratified_Regression_analysis %>% mutate(Predictor=gsub('genescores_oe_dichotomized: 0','Not constrained',Predictor),Predictor=gsub('genescores_oe_dichotomized: 1','Constrained',Predictor),
-                                                                            Predictor=gsub('tissue_specific: 0','Tissue shared',Predictor),Predictor=gsub('tissue_specific: 1','Tissue specific',Predictor)) %>% arrange(dataset,Predictor)
-Stratified_Regression_analysis$Pval_sig=as.factor(ifelse(Stratified_Regression_analysis$P.val>=0.05,0,1))
-
-if(length(unique(Stratified_Regression_analysis$Pval_sig[!is.na(Stratified_Regression_analysis$Pval_sig)]))==1){
-  shape_vals=c(19)
-} else{
-  shape_vals=c(1,19)
-}
-
-Stratified_Regression_analysis$order=rep(length(unique(Stratified_Regression_analysis$Predictor)):1)
-
-Stratified_Regression_analysis$Predictor<-factor(Stratified_Regression_analysis$Predictor, levels=unique(Stratified_Regression_analysis$Predictor))
-Stratified_Regression_analysis$CI= paste0(round(Stratified_Regression_analysis$OR,1),' (', round(Stratified_Regression_analysis$lowerCI,1), ' - ', round(as.numeric(Stratified_Regression_analysis$upperCI),1),')')
-
-fp_all <- ggplot(data=Stratified_Regression_analysis, aes(y=Predictor, x=OR, color=dataset))+
-  geom_point(size=2, aes( shape=Pval_sig,color=dataset),stroke =1.5, position = position_dodge2(width =0.5)) +  
-  scale_shape_manual(values=shape_vals) +guides(shape = "none") + 
-  geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black',position = position_dodge2(width =0.5)) +
-  xlab("Odds ratio") + ylab('') +  coord_cartesian(c(0,max(Stratified_Regression_analysis$upperCI))) +
-  scale_y_discrete(limits = rev(levels(Stratified_Regression_analysis$Predictor))) +
-  geom_vline(xintercept=1, linetype='longdash', color='red') + 
-  theme(legend.text=element_text(size=12), legend.title=element_text(size=13)) +
-  theme(axis.text=element_text(size=14), axis.title=element_text(size=15),strip.text = element_text(size = 14))  +
-  theme_classic() +
-  theme(axis.line = element_line(colour = 'black', size = 0.5), 
-        axis.ticks.y = element_line(colour = "black", size = 0.5),
-        axis.ticks.x = element_line(colour = "black", size = 0.5),
-        axis.ticks.length = unit(0.25, "cm")) +
-  theme(axis.text.x=element_text(color = "black",),
-        axis.text.y=element_text(color = "black"),
-        axis.title=element_text(color = "black"))+ scale_color_discrete(name="")
-
-library(patchwork)
-
-ORlabels=Stratified_Regression_analysis %>% mutate(Label=paste0(Stratified_Regression_analysis$CI)) %>% select(Predictor,dataset,Label) %>% arrange(desc(dataset)) %>% group_by(Predictor) %>% dplyr::summarise(Label=paste0(Label,collapse='\n') )  
-
-p_right_all <- 
-  ORlabels %>%
-  ggplot() +
-  geom_text(
-    aes(x = 0, y = Predictor, label = Label),size =3.1,
-    hjust = 0  ) + ggtitle('Odds ratio (95% CI)') +  
-  scale_y_discrete(limits = rev(levels(Stratified_Regression_analysis$Predictor))) +
-  theme_void() + theme(plot.title = element_text(size =11, hjust = 0.72))
-
-fp3 <- fp_all + plot_spacer() + p_right_all + plot_layout(widths = c(4, -1.5,3.5) ,guides = "collect") & theme(legend.position = "bottom")#,legend.box = "horizontal",legend.justification = "left")
-filename1=paste0(plots_dir,'/Sup_Fig10_forestplot_stratified_GPS_extendedfig_trained_',outcome_trained,'.png')
-
-ggsave(fp3, file=filename1, width = 6.5, height=5)
-
-
-### Supplementary Fig 19
+### Supplementary Fig 18
 
 library(VennDiagram)
 
@@ -1365,7 +1253,7 @@ venn.diagram(
   cat.fontfamily='sans',
   cat.dist = c(0.05, 0.05),  # <-- Push labels out more
   margin = 0.07,  # <-- Increase to give more space
-  filename = "results/plots/Sup_Fig19_venn_gene-parenttermoverap_sideeffects.png",
+  filename = "results/plots/Sup_Fig18_venn_gene-parenttermoverap_sideeffects.png",
   imagetype = "png",
   output = TRUE
 )
