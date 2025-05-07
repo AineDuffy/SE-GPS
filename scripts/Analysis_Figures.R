@@ -324,7 +324,7 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     if(drugs=='withdrugs'){
       filename1=paste0(plots_dir,'/Figure3a_forestplot_stratified_GPS_',dataset,'.png')
     } else {
-      filename1=paste0(plots_dir,'/Sup_Fig11a_forestplot_stratified_GPS_',dataset,'.png')
+      filename1=paste0(plots_dir,'/Sup_Fig10a_forestplot_stratified_GPS_',dataset,'.png')
     }
     ggsave(fp3, file=filename1, width = 6.5, height=5)
     
@@ -395,7 +395,7 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     if(drugs=='withdrugs'){
       filename1=paste0(plots_dir,'/Figure3c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
     } else {
-      filename1=paste0(plots_dir,'/Sup_Fig11c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
+      filename1=paste0(plots_dir,'/Sup_Fig10c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
     }
     ggsave(fp3, file=filename1, width = 7, height=6)
     
