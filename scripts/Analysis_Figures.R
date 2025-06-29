@@ -20,7 +20,7 @@ library(UpSetR)
 
 args <- commandArgs(trailingOnly = TRUE)
 
-source('Plot_functions.R')
+source('scripts/Plot_functions.R')
 
 start.time <- Sys.time()
 print(start.time)

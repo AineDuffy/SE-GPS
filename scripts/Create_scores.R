@@ -6,7 +6,7 @@ library(dplyr)
 library(tidyr)
 
 # Set required paths
-setwd('/Users/AD/Documents/PhD/Side_Effect_Project/Revision/Code/SE_GPS/Analysis/')
+
 scorefolder<-'results/construct_scores/'
 tables_dir='results/tables/'
 dataset='Opentargets'; outcome='senomi_phase4'
