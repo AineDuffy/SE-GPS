@@ -20,6 +20,11 @@ library(UpSetR)
 
 args <- commandArgs(trailingOnly = TRUE)
 
+source('Plot_functions.R')
+
+start.time <- Sys.time()
+print(start.time)
+
 # Set required paths
 scorefolder<-'results/construct_scores/'
 analysisdir<- 'results/analysis_results/'
@@ -53,14 +58,19 @@ lapply(c('Opentargets','Onsides'), function(dataset){
   datafile=datafile[grepl(paste0(dataset), datafile)]
   dataset1<-fread(datafile, data.table=F)
   
+  # Run univariate logistic regression models for each genetic predictor
   univarresults<-do.call(rbind,mclapply(geneticpredictors, function(pheno){
     
+    # Identify all unique genes and parentterms where the predictor is non-zero and when the outcome is positive (is a side effect)
     genes_pred=dataset1 %>% distinct(gene,.data[[pheno]]) %>% filter(.data[[pheno]]!=0)
     PT_pred=dataset1 %>% distinct(parentterm,.data[[pheno]]) %>% filter(.data[[pheno]]!=0)
     genes_pred_outcome=dataset1 %>% distinct(gene,.data[[pheno]],.data[[outcome]]) %>% filter(.data[[pheno]]!=0) %>% filter(.data[[outcome]]==1)
     PT_pred_outcome=dataset1 %>% distinct(parentterm,.data[[pheno]],.data[[outcome]]) %>% filter(.data[[pheno]]!=0) %>% filter(.data[[outcome]]==1)
     
+    # Fit logistic regression model with outcome ~ genetic predictor + category (adjusting for category)
     model1 =glm(as.formula(paste0(outcome, ' ~', pheno,'+category')), data=dataset1,family = 'binomial')
+
+    # Extract regression results (coefficients, confidence intervals, p-values)
     ta1<-rbind(cbind.data.frame(outcome=outcome,Analysis='Full', predictors=names(model1$coefficients)[!grepl('category|Inter', names(model1$coefficients))],
                                 No.genes=length(unique(genes_pred$gene)), No.parentterms=length(unique(PT_pred$parentterm)),
                                 No.genes.outcome=length(unique(genes_pred_outcome$gene)), No.parentterms.outcome=length(unique(PT_pred_outcome$parentterm)),
@@ -80,7 +90,7 @@ lapply(c('Opentargets','Onsides'), function(dataset){
   } else{
     shape_vals=c(1,19)
   }
-  
+  #rename predictors for plot labels
   univar_data_outcome <- FindReplace(data = univar_data_outcome, Var = "predictors", replaceData = Predictor_names, from = "predictors", to = "New", exact = TRUE)
   univar_data_outcome <-inner_join(univar_data_outcome,Category_names) %>% arrange(Category)
   univar_data_outcome$order=rep(length(unique(univar_data_outcome$predictors)):1)
@@ -88,38 +98,34 @@ lapply(c('Opentargets','Onsides'), function(dataset){
   univar_data_outcome$CI= ifelse( univar_data_outcome$upperCI>100, paste0(round(univar_data_outcome$OR,1),' (', round(univar_data_outcome$lowerCI,1), ' - ', format(round(univar_data_outcome$upperCI,1), nsmall = 1),')')
                                   , paste0(round(univar_data_outcome$OR,1),' (', round(univar_data_outcome$lowerCI,1), ' - ', round(univar_data_outcome$upperCI,1),')'))
   ## Add OR as labels to plot
-  ORlabels=univar_data_outcome %>% mutate(Label=paste0( univar_data_outcome$CI))   %>% group_by(predictors) %>% dplyr::summarise(Label=paste0(Label, collapse='\n'))%>% select(predictors,Label)
+  ORlabels=univar_data_outcome %>% dplyr::mutate(Label=paste0( univar_data_outcome$CI))   %>% group_by(predictors) %>% dplyr::summarise(Label=paste0(Label, collapse='\n'))%>% select(predictors,Label)
   
-  fp_all <- ggplot(data=univar_data_outcome, aes(y=predictors, x=OR,color=Category))+
-    geom_point(size=2, aes( shape=Pval_sig, color=Category),stroke =1.5, position = position_dodge2(width =0.5)) +
-    scale_shape_manual(values=shape_vals) +guides(shape = "none") +
-    geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black') +
-    xlab("Odds ratio") + ylab('') +  coord_cartesian(c(0,4)) +
-    scale_y_discrete(limits = rev(levels(univar_data_outcome$predictors))) +
-    geom_vline(xintercept=1, linetype='longdash', color='red') +
-    geom_text( aes(x=0.1, y=order+0.2) ,label =paste0(round(univar_data_outcome$No.genes.outcome, 2),'/',round(univar_data_outcome$No.genes, 2)) , size =2.7, color='#D41159')+#red
-    geom_text(aes(x=0.1, y=order-0.2) ,label = paste0(round(univar_data_outcome$No.parentterms.outcome ,3), '/',round(univar_data_outcome$No.parentterms ,3)), size =2.7, color='#1A85FF') + #blue
-    theme(axis.text=element_text(size=14), axis.title=element_text(size=14),strip.text = element_text(size = 13))  +
-    theme_classic() +
-    theme(axis.line = element_line(colour = 'black', size = 0.5),
-          axis.ticks.y = element_line(colour = "black", size = 0.5),
-          axis.ticks.x = element_line(colour = "black", size = 0.5),
-          axis.ticks.length = unit(0.25, "cm")) +
-    theme(axis.text.x=element_text(color = "black",),
-          axis.text.y=element_text(color = "black"),
-          axis.title=element_text(color = "black") )
+  fp <- create_forest_plot(df = univar_data_outcome,
+                           yvar = "predictors", 
+                           groupvar = "Category",
+                           shapevar = "Pval_sig",
+                           colorvar = "Category",
+                           ci_lower = "lowerCI",
+                           ci_upper = "upperCI",
+                           y_levels = univar_data_outcome$predictors,
+                           label_above = paste0(round(univar_data_outcome$No.genes.outcome, 2),'/',round(univar_data_outcome$No.genes, 2)),
+                           label_below = paste0(round(univar_data_outcome$No.parentterms.outcome ,3), '/',round(univar_data_outcome$No.parentterms ,3)),
+                           shape_vals = shape_vals,
+                           coord_limit = 4)
   
-  p_right_all <-
-    ORlabels %>%
-    ggplot() +
-    geom_text(
-      aes(x = 0, y = predictors, label = Label),size =3.1,
-      hjust = 0  ) + ggtitle('Odds ratio (95% CI)') +
-    scale_y_discrete(limits = rev(levels(univar_data_outcome$predictors))) +
-    theme_void() + theme(plot.title = element_text(size =11, hjust = 0.75))
+  p_right_all1 <- make_side_labels(df = ORlabels,
+                           yvar = "predictors", 
+                           label = "Label", 
+                           y_levels = univar_data_outcome$predictors,
+                           size = 3.1, 
+                           hjust_size = 0.75)
   
-  fp3 <- fp_all + plot_spacer() + p_right_all + plot_layout(widths = c(4,-1.5,3.5) ,guides = "collect")& theme(legend.position = "bottom")
-  ggsave(fp3, file=paste0(plots_dir,'/Figure2_forestplot_univar_',dataset,'.png'), width = 6.5, height=5, dpi=300)
+  fp3 <- combine_plots(fp = fp,
+                       labels_plot = p_right_all1, 
+                       widths = c(4,-1.5,3.5),
+                       legend = "bottom")
+  
+ggsave(fp3, file=paste0(plots_dir,'/Figure2_forestplot_univar_',dataset,'.png'), width = 6.5, height=5, dpi=300)
   
 })
 
@@ -129,6 +135,7 @@ lapply(c('Opentargets','Onsides'), function(dataset){
 ##############################################################################
 
 # --- Prepare data: stratify dataset into n gene targets, n drugs per se and n se and by category ---
+# loop through full dataset ('withdrugs') and severe drug dataset ('withdrawn') for both Open Targets and Onsides
 
 lapply(c('withdrugs','withdrawn'), function(drugs){
   
@@ -185,11 +192,14 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
         score_all=ifelse(genescoresum>0,1,0)
       )
     
-    # --- Run model for full data ---
+    # --- Run logistic regression with outcome as side effect and predictor as binarized SE-GPS  + category (adjusting for category) ---
+    
+    # --- Run mode across full dataset ---
     
     cov_pred=paste0('category')
     model1 =glm(as.formula(paste0(outcome, ' ~ score_all + ', cov_pred)), data=Dataset_genescores2,family = 'binomial')
-    
+
+        # Extract regression results (coefficients, confidence intervals, p-values)
     Fullmodel<-rbind(cbind.data.frame(Analysis='Full',
                                       No.drugs=length(unique(Dataset_genescores2$drugname)), No.genes=length(unique(Dataset_genescores2$gene)),
                                       No.parentterms=length(unique(Dataset_genescores2$parentterm)),
@@ -205,10 +215,14 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     
     Stratified<-do.call(rbind,lapply(c('number_gene_targets','number_drugs','number_SE'), function(strat){
       gene_freq_gps<-do.call(rbind,lapply(sort(unique(Dataset_genescores2[[strat]])), function(strat_level){
+       # Filter data for the stratification level 
         Dataset_genescores1_strat_gene2 <- Dataset_genescores2 %>% filter(.data[[strat]] == strat_level)
+        # Filter to only SEs that occurred in stratified data
         Dataset_genescores1_stratspecific=Dataset_genescores1_strat_gene2 %>% filter(.data[[strat]]==strat_level) %>% filter(senomi_phase4==1)
-        Dataset_genescores1_strat_gene=subset(Dataset_genescores1_strat_gene2, (parentterm %in% Dataset_genescores1_stratspecific$parentterm)) #restrict to drugs with gene targets and take just those SE
+        #Subset stratified data to those parentterms present in filtered side effect subset 
+        Dataset_genescores1_strat_gene=subset(Dataset_genescores1_strat_gene2, (parentterm %in% Dataset_genescores1_stratspecific$parentterm)) 
         cov_pred=paste0('category')
+        # Run logistic regression model and extract regression results
         model1 =glm(as.formula(paste0(outcome, ' ~ score_all + ', cov_pred)), data=Dataset_genescores1_strat_gene,family = 'binomial')
         ta1_gps_gene<-rbind(cbind.data.frame(Analysis='Stratified_group', No.drugs=length(unique(Dataset_genescores1_strat_gene$drugname)), No.genes=length(unique(Dataset_genescores1_strat_gene$gene)),
                                              No.parentterms=length(unique(Dataset_genescores1_strat_gene$parentterm)),
@@ -227,10 +241,13 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     
     Bycategory<-do.call(rbind,lapply(unique(Dataset_genescores2$category), function(categ){
       print(categ)
+      # Filter data by phecode category
       Dataset_genescores1_cat1=Dataset_genescores2 %>% filter(categ==category)
+      # Filter to only category SEs that occurred in stratified data
       Dataset_genescores1_catspec=Dataset_genescores2 %>% filter(categ==category) %>% filter(senomi_phase4==1)
-      Dataset_genescores1_cat=subset(Dataset_genescores1_cat1, (drugname %in% Dataset_genescores1_catspec$drugname)) # subset to drugs with SE that match category
-      
+      # Subset to drugs with SE that match phecode category
+      Dataset_genescores1_cat=subset(Dataset_genescores1_cat1, (drugname %in% Dataset_genescores1_catspec$drugname)) 
+      # Make sure score and side effect have two values to avoid model failing
       if(length(unique(Dataset_genescores1_cat$score_all))>1 & length(unique(Dataset_genescores1_cat$senomi_phase4))>1) {
         model1 =glm(as.formula(paste0(outcome, ' ~ score_all ')), data=Dataset_genescores1_cat,family = 'binomial')
         ta1_gps_cat<-rbind(cbind.data.frame( Analysis='ByCategory',
@@ -261,6 +278,7 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     
     outcomestrat<-fread(paste0(analysisdir,'Stratified_analysis_full_outcome_trained',outcome_trained,'_',drugs,'.txt'), data.table=F)
     univar_data_outcome1 <- outcomestrat %>% filter( dataset == !!dataset)
+    # Format plot labels
     univar_data_outcome1 <- univar_data_outcome1 %>% dplyr::mutate(Stratified_group=gsub('_','',gsub('number_','N ',Stratified_group )), Stratified_group= gsub('genetargets','gene targets',Stratified_group),Stratified_group= gsub('N drugs','N drugs per SE',Stratified_group))
     univar_data_outcome1$Predictor=paste0(univar_data_outcome1$Stratified_group, ': ', univar_data_outcome1$Level, sep = ' ')
     univar_data_outcome1$Predictor=gsub('NA: NA ','All',univar_data_outcome1$Predictor)
@@ -281,51 +299,44 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     univar_data_outcome_drugs$upperCI_cut<-ifelse(univar_data_outcome_drugs$upperCI> maxor, maxor, NA)
     univar_data_outcome_drugs$CI= paste0(round(univar_data_outcome_drugs$OR,1),' (', round(univar_data_outcome_drugs$lowerCI,1), ' - ', round(as.numeric(univar_data_outcome_drugs$upperCI),1),')')
     
-    fp_all <- ggplot(data=univar_data_outcome_drugs, aes(y=Predictor, x=OR, color=grouppred))+
-      geom_point(size=2, aes( shape=Pval_sig,color=grouppred),stroke =1.5, position = position_dodge2(width =0.5)) +
-      scale_shape_manual(values=shape_vals) +guides(shape = "none") +
-      geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black',position = position_dodge2(width =0.5)) +
-      xlab("Odds ratio") + ylab('') +  coord_cartesian(c(0,max(univar_data_outcome_drugs$upperCI))) +
-      scale_y_discrete(limits = rev(levels(univar_data_outcome_drugs$Predictor))) +
-      geom_vline(xintercept=1, linetype='longdash', color='red') +
-      theme(legend.text=element_text(size=12), legend.title=element_text(size=13)) +
-      geom_text(aes(x=0, y=order+0.2) ,label =paste(round(univar_data_outcome_drugs$No.genes, 2)) , size =2.7, color='#D41159')+
-      geom_text(aes(x=0, y=order-0.2) ,label = paste(round(univar_data_outcome_drugs$No.parentterms ,3)), size =2.7, color='#1A85FF') + #number of drugs and then number of PT when number of drugs stays same
-      theme(axis.text=element_text(size=14), axis.title=element_text(size=15),strip.text = element_text(size = 14))  +
-      theme_classic() +
-      theme(axis.line = element_line(colour = 'black', size = 0.5),
-            axis.ticks.y = element_line(colour = "black", size = 0.5),
-            axis.ticks.x = element_line(colour = "black", size = 0.5),
-            axis.ticks.length = unit(0.25, "cm")) +
-      theme(axis.text.x=element_text(color = "black",),
-            axis.text.y=element_text(color = "black"),
-            axis.title=element_text(color = "black"),
-            legend.position = "none")
-    
-    if((any(!is.na(univar_data_outcome_drugs$upperCI_cut)))){
-      fp_all<-fp_all +   scale_x_continuous(limits=c(0,maxor)) +
-        geom_segment(aes(x = lowerCI , xend = upperCI_cut, y = Predictor, yend = Predictor ), arrow = arrow(length = unit(0.25, "cm")))
-    }
-    
-    library(patchwork)
-    
     ORlabels=univar_data_outcome_drugs %>% mutate(Label=paste0(univar_data_outcome_drugs$CI)) %>% group_by(Predictor)  %>% select(Predictor,Label)
     
-    p_right_all <-
-      ORlabels %>%
-      ggplot() +
-      geom_text(
-        aes(x = 0, y = Predictor, label = Label),size =3.1,
-        hjust = 0  ) + ggtitle('Odds ratio (95% CI)') +
-      scale_y_discrete(limits = rev(levels(univar_data_outcome_drugs$Predictor))) +
-      theme_void() + theme(plot.title = element_text(size =11, hjust = 0.72))
+    fp <- create_forest_plot(df = univar_data_outcome_drugs,
+                             yvar = "Predictor", 
+                             shapevar = "Pval_sig",
+                             colorvar = "grouppred",
+                             ci_lower = "lowerCI",
+                             ci_upper = "upperCI",
+                             y_levels = univar_data_outcome_drugs$Predictor,
+                             label_above = paste(round(univar_data_outcome_drugs$No.genes, 2)),
+                             label_below = paste(round(univar_data_outcome_drugs$No.parentterms ,3)),
+                             shape_vals = shape_vals,
+                             coord_limit = max(univar_data_outcome_drugs$upperCI))
     
-    fp3 <- fp_all + plot_spacer() + p_right_all + plot_layout(widths = c(4, -1.5,3.5) ,guides = "collect") #& theme(legend.position = "bottom")#,legend.box = "horizontal",legend.justification = "left")
+    # if CI are too long add arrows at upper cut off 
+    if (any(!is.na(univar_data_outcome_drugs$upperCI_cut))) {
+      fp <- add_arrows(fp, maxor, "Predictor")
+    }
+    
+    p_right_all <- make_side_labels(df = ORlabels,
+                                     yvar = "Predictor", 
+                                     label = "Label", 
+                                     y_levels = univar_data_outcome_drugs$Predictor,
+                                     size = 3.1, 
+                                     hjust_size = 0.72 )
+    
+    fp3 <- combine_plots(fp = fp,
+                         labels_plot = p_right_all, 
+                         widths = c(4,-1.5,3.5),
+                         legend = "none")
+    
+    
     if(drugs=='withdrugs'){
       filename1=paste0(plots_dir,'/Figure3a_forestplot_stratified_GPS_',dataset,'.png')
     } else {
       filename1=paste0(plots_dir,'/Sup_Fig10a_forestplot_stratified_GPS_',dataset,'.png')
     }
+    
     ggsave(fp3, file=filename1, width = 6.5, height=5)
     
     # --- Create forest plot for categories ---
@@ -354,44 +365,38 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     outcomestrat_bycat1$category_full<-factor(outcomestrat_bycat1$category_full, levels=unique(outcomestrat_bycat1$category_full))
     outcomestrat_bycat1$upperCI=ifelse(!is.na(outcomestrat_bycat1$upperCI_cut),outcomestrat_bycat1$upperCI_cut,outcomestrat_bycat1$upperCI)
     
-    
-    fp_all <- ggplot(data=outcomestrat_bycat1, aes(y=category_full, x=OR, color=category_full)) +
-      geom_point(size=2, aes(shape=Pval_sig, color=category_full), stroke=1.5, position=position_dodge2(width=0.5),show.legend=FALSE) +
-      scale_shape_manual(values=shape_vals) + guides(shape="none") +
-      geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black', position=position_dodge2(width=0.5),show.legend=FALSE) +
-      xlab("Odds ratio") + ylab('') +
-      scale_y_discrete(limits=rev(levels(outcomestrat_bycat1$category_full))) +
-      geom_vline(xintercept=1, linetype='longdash', color='red') +
-      theme(legend.text=element_text(size=12), legend.title=element_text(size=13)) +
-      theme(axis.text=element_text(size=14), axis.title=element_text(size=15),strip.text = element_text(size = 14))  +
-      theme_classic() +
-      theme(axis.line = element_line(colour = 'black', size = 0.5),
-            axis.ticks.y = element_line(colour = "black", size = 0.5),
-            axis.ticks.x = element_line(colour = "black", size = 0.5),
-            axis.ticks.length = unit(0.25, "cm")) +
-      theme(axis.text.x=element_text(color = "black",),
-            axis.text.y=element_text(color = "black"),
-            axis.title=element_text(color = "black"))+ scale_color_discrete(name="")
-    
-    if((any(!is.na(outcomestrat_bycat1$upperCI_cut)))){
-      fp_all<-fp_all +   scale_x_continuous(limits=c(0,maxor+4)) +
-        geom_segment(aes(x = lowerCI , xend = upperCI_cut, y = category_full, yend = category_full ), arrow = arrow(length = unit(0.25, "cm")))
-    }
-    
-    library(patchwork)
-    
     ORlabels=outcomestrat_bycat1 %>% mutate(Label=paste0(CI)) %>% select(category_full,dataset,Label) %>% arrange(desc(dataset)) %>% group_by(category_full) %>% dplyr::summarise(Label=paste0(Label,collapse='\n') )
     
-    p_right_all <-
-      ORlabels %>%
-      ggplot() +
-      geom_text(
-        aes(x = 0, y = category_full, label = Label),size =3.1,
-        hjust = 0  ) + ggtitle('Odds ratio (95% CI)') +
-      scale_y_discrete(limits = rev(levels(outcomestrat_bycat1$category_full))) +
-      theme_void() + theme(plot.title = element_text(size =11, hjust = 0.72))
+    if(drugs=='withdrawn'){
+      maxor = maxor + 4
+    }
+    fp <- create_forest_plot(df = outcomestrat_bycat1,
+                             yvar = "category_full", 
+                             shapevar = "Pval_sig",
+                             colorvar = "category_full",
+                             ci_lower = "lowerCI",
+                             ci_upper = "upperCI",
+                             y_levels = outcomestrat_bycat1$category_full,
+                             shape_vals = shape_vals)
     
-    fp3 <- fp_all + plot_spacer() + p_right_all + plot_layout(widths = c(4, -1.5,3.5) ,guides = "collect") & theme(legend.position = "none")
+    # if CI are too long add arrows at upper cut off 
+    if (any(!is.na(outcomestrat_bycat1$upperCI_cut))) {
+      fp <- add_arrows(fp, maxor, "category_full")
+    }
+    
+    p_right_all <- make_side_labels(df = ORlabels,
+                                    yvar = "category_full", 
+                                    label = "Label", 
+                                    y_levels = outcomestrat_bycat1$category_full,
+                                    size = 3.1, 
+                                    hjust_size = 0.72 )
+    
+    fp3 <- combine_plots(fp = fp,
+                         labels_plot = p_right_all, 
+                         widths = c(4,-1.5,3.5),
+                         legend = "none")
+    
+
     if(drugs=='withdrugs'){
       filename1=paste0(plots_dir,'/Figure3c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
     } else {
@@ -423,18 +428,22 @@ returnunivar<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset)
     
     cov_pred=paste0('category')
     
-    ## calculate no predictors
+    # calculate the number of non-zero genetic predictors per row and store in new column 'no.pred'
     Dataset_genescores1$no.pred=rowSums(Dataset_genescores1[,geneticpredictors] != 0)
     Dataset_genescores1[,geneticpredictors][Dataset_genescores1[,geneticpredictors] !=0 ] <- 1
-    ## loop across 0.3 increments
+    ##  Loop across thresholds of SE-GPS (from 0 to 2.1 by increments of 0.3)
     binned_gps2<-do.call(rbind,mclapply(c(seq(0,2.1,0.3)), function(bin) {
+      # Filter dataset for entries where the SE-GPS is greater than the current threshold and binarize the predictor as 'bin'
       df_filtered=Dataset_genescores1 %>% filter(genescoresum>(bin) ) %>% mutate(bin=1)
+      # Filter dataset with no genetic evidence
       Dataset_genescores1_below=Dataset_genescores1 %>% filter(no.pred==0 ) %>% mutate(bin=0)
       Dataset_genescorescompare=rbind(df_filtered , Dataset_genescores1_below) %>% distinct()
+      # Get counts of genes, phenotypes with score > bin increment 
       genes=length(unique(Dataset_genescorescompare$gene[Dataset_genescorescompare$bin==1]))
       parentterm=length(unique(Dataset_genescorescompare$parentterm[Dataset_genescorescompare$bin==1]))
       gene_pheno=nrow(df_filtered %>% distinct(gene, parentterm))/nrow(Dataset_genescores1 %>% distinct(gene, parentterm)) *100
       entries=nrow(Dataset_genescorescompare[Dataset_genescorescompare$bin==1,])
+      # Fit logistic regression model with increment threshold bin as predictor and include category as a covariate
       model1 =glm(as.formula(paste0(outcome,' ~ bin + category')), data=Dataset_genescorescompare,family = 'binomial')
       mod_output<-rbind(cbind.data.frame(dataset=dataset, outcome=outcome,binseq=0.3, drugs=drugs,genescoresum =bin, Percentile=round(df_filtered$percent[1],4) , genes=genes, parentterms=parentterm,gene_pheno_percentage=gene_pheno, entries=entries, OR=exp(summary(model1)$coefficient[2,1]),lowerCI=exp(summary(model1)$coefficient[2,1]-(1.96* summary(model1)$coefficient[2,2])),upperCI=exp(summary(model1)$coefficient[2,1]+(1.96* summary(model1)$coefficient[2,2])),P.val=summary(model1)$coefficient[2,4], analysis=paste0('All')))
       return(mod_output)
@@ -466,51 +475,20 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     
     max_uci <- round(ifelse(max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])>max_value,max_value , max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])+1))
     
-    #Create plot
-    plot1=ggplot(data=binned_gps2, aes(x=genescoresum, y=OR)) +
-      geom_point(aes(color=OR,shape =or_sig),position=position_dodge(width=0.2),size=2.5, stroke=1.5)  +
-      xlab('SE-GPS bins') + ylab('Odds ratio') + # ggtitle(paste(dataset_title, '-', outcome,'- freq:','\n', title, typefilt_type,'\n', 'Trained:', outcome_trained, drugs,'\n', 'Test:', take ))+
-      scale_shape_manual(values=shape_vals) +guides(shape = "none") +
-      scale_x_discrete(limits = (levels(binned_gps2$genescoresum))) +
-      geom_linerange(aes(ymin=lowerCI, ymax=upperCI,color=OR),position=position_dodge(width=0.2)) +
-      scale_color_gradient(low = ("blue"), high = ("red"), limits = c(0, 6), breaks = c(0, 2, 4, 6), labels = c(0,2, 4, 6), oob = scales::squish  ) + #OR colour scale
-      geom_hline(yintercept=1, color = "grey") +
-      coord_cartesian(ylim=c(-0.7,max_uci), clip='off') +
-      theme_classic() +
-      theme(axis.text.x=element_text(size=14,angle=45, vjust = 1, hjust=1,color = "black"),axis.text.y=element_text(color = "black",size=14),
-            axis.title=element_text(size=15, color = "black"),legend.text=element_text(size=13), legend.title=element_text(size=13),
-            axis.line = element_line(colour = 'black', size = 0.5),
-            axis.ticks = element_line(colour = "black", size = 0.5),
-            axis.ticks.length = unit(0.25, "cm"),
-            plot.margin=margin(10,20,10,10)) +
-      scale_y_continuous(limits=c(-0.2,max_uci))
-    
-    if(length(binned_gps2$upperCI_cut[!is.na(binned_gps2$upperCI_cut)])>=1){
-      plot1 <- plot1 +
-        geom_segment(aes(x = genescoresum , xend = genescoresum, y = lowerCI, yend = upperCI_cut , color = OR), arrow = arrow(length = unit(0.25, "cm")))
-    }
-    
-    ### include table
-    
-    table_thres=binned_gps2 %>% distinct(genescoresum, Percentile,genes,parentterms,OR, CI,P.val) %>% mutate(OR=round(OR,1),Percentile=round(Percentile,2), P.val=sprintf("%.2e", P.val) ) %>% dplyr::rename(`SE-GPS`=genescoresum, Genes=genes, Phenotypes=parentterms, `P-value`=P.val)
-    g = tableGrob(table_thres, rows=NULL, theme=ttheme_minimal(core=list(bg_params=list(fill="white")), colhead=list(bg_params=list(fill="white"))))
-    g <- gtable_add_grob(g,
-                         grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                         t = 2, b = nrow(g), l = 1, r = ncol(g))
-    g <- gtable_add_grob(g,
-                         grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                         t = 1, l = 1, r = ncol(g))
-    
-    if(drugs=='withdrugs'){
-      filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
-    } else {
-      filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
-    }
-    png( file=filename1, width=500,height=600)
-    grid.arrange(plot1,g,
-                 nrow = 2,
-                 heights = c(2, 1))
-    dev.off()
+    plot_binned_or_with_table(
+      binned_gps2 = binned_gps2,
+      dataset = dataset, 
+      drugs = drugs,
+      title_PLT = "",
+      score_plt = "score1",
+      shape_vals = shape_vals,
+      max_uci = max_uci,
+      filename = if(drugs=='withdrugs'){
+        filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','_prac.png')
+      } else {
+        filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','_prac.png')
+      }
+    )
     
     
   })
@@ -521,16 +499,18 @@ lapply(c('Onsides','Opentargets'), function(dataset){
 ##############################################################################
 
 UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
+  #Load SE-GPS-DOE data
   Genescores_beta_genetic_CV=fread(paste0(scorefolder, 'All_genescoresum_across_all_predictors_',dataset,'_outcome_',outcome_trained,'_sideeffectproject_DOE.txt.gz'), data.table=F)
   doedatafile<-list.files(path='Data/', pattern='DOE', full.names=T)
   doedatafile=doedatafile[grepl(paste0(dataset), doedatafile)]
   print(doedatafile)
+  # Annotate scores as 'pos', 'neg', or 0
   Genescores_beta_genetic_CV$score=0
   Genescores_beta_genetic_CV$score= ifelse(Genescores_beta_genetic_CV$genescoresum >0,  'pos' , Genescores_beta_genetic_CV$score)
   Genescores_beta_genetic_CV$score= ifelse(Genescores_beta_genetic_CV$genescoresum <0,  'neg' , Genescores_beta_genetic_CV$score)
   dataset1<-fread(doedatafile, data.table=F)
   Dataset_genescores1= Genescores_beta_genetic_CV %>%arrange(genescoresum) %>% mutate(order=c(seq(1:length(genescoresum)))) %>% mutate(percent=order/length(genescoresum) *100)
-  
+   # Loop over positive and negative scores separately
   DOE_assoc<-do.call(rbind,lapply(c('pos','neg'), function(score){
     if(score=='pos') {
       Genescores_beta_genetic_CV$genescoresum_pos= ifelse(Genescores_beta_genetic_CV$genescoresum >0,  Genescores_beta_genetic_CV$genescoresum , 0)
@@ -539,9 +519,10 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
       Genescores_beta_genetic_CV$genescoresum_neg= ifelse(Genescores_beta_genetic_CV$genescoresum < 0,  Genescores_beta_genetic_CV$genescoresum , 0)
       Dataset_genescores1= Genescores_beta_genetic_CV%>% select(-genescoresum) %>% dplyr::rename(genescoresum=genescoresum_neg) %>% mutate(genescoresum=genescoresum*-1) %>% arrange(genescoresum) %>% mutate(order=c(seq(1:length(genescoresum)))) %>% mutate(percent=order/length(genescoresum) *100)
     }
+    # create binary outcome: 1 if SE-GPS-DOE > 0
     Dataset_genescores1$score_all=ifelse(Dataset_genescores1$genescoresum>0,1,0)
     cov_pred=paste0('category') 
-    
+    # Set the MOA (mechanism of action) direction
     if(score=='pos') {moadrug='inhibitor'}
     if(score=='neg') {moadrug='activator'}
     
@@ -551,10 +532,11 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
     dataset1_moa1=subset(dataset1_moa, (parentterm %in% dataset1_moa_pt$parentterm))
     dataset1_moa1= dataset1_moa1 %>% select(drugname:moa)
     Dataset_genescores_score=Dataset_genescores1 %>% select(drugname , gene, parentterm,score_all)
+    # join with SE-GPS-DOE data
     Dataset_genescores2=inner_join(Dataset_genescores_score,dataset1_moa1)
     
     cov_pred=paste0('category') 
-    
+    # Fit logistic regression with side effect as outcome and binarized score as predictor with category as covariate
     model1 =glm(as.formula(paste0(outcome, ' ~ score_all + ', cov_pred)), data=Dataset_genescores2,family = 'binomial')
     ta1_gps_direction<-rbind(cbind.data.frame( No.outcome=length(unique(Dataset_genescores2$parentterm[Dataset_genescores2[outcome]==1])),
                                                outcome=outcome,dataset=dataset,score=score,moa=moadrug, 
@@ -563,14 +545,14 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
                                                upperCI=exp(summary(model1)$coefficient[2,1]+(1.96* summary(model1)$coefficient[2,2])),P.val=summary(model1)$coefficient[2,4]))
     
     
-    #restricting to inhibitor / activator 
     ## binned analysis 
     cols=c("clinicalvariant_DOE","gwastrait_doe","geneburden_doe","singlevar_doe")
-    ## calculate number predictors  
+    ## calculate number of genetic predictors present 
     Dataset_genescores1$no.pred=rowSums(Dataset_genescores1[,cols] != 0)  
     Dataset_genescores1[,cols][Dataset_genescores1[,cols] !=0 ] <- 1
-    if(score=='pos'){
-      dataset1_moa=dataset1 %>% filter(moa=='inhibitor')
+   
+     # Prepare data for binned analysis (separately for pos scores with inhibitor moa and neg scores with activator moa)
+      dataset1_moa=dataset1 %>% filter(moa==moadrug)
       dataset1_moa_pt=dataset1_moa %>% filter(se==1)
       dataset1_moa1=subset(dataset1_moa, (parentterm %in% dataset1_moa_pt$parentterm))
       dataset1_moa1= dataset1_moa1 %>% select(drugname:moa)
@@ -579,18 +561,22 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
       Dataset_genescores2=inner_join(Dataset_genescores_score,dataset1_moa1)
       cov_pred=paste0('category') 
       
+      ##  Loop across thresholds of SE-GPS-DOE (from 0 to 2.1 by increments of 0.3)
       binned_gps3<-do.call(rbind,mclapply(c(seq(0,2.1,0.3)), function(bin) {
         print(bin)
+        # Filter dataset for entries where the SE-GPS-DOE is greater than the current threshold and binarize the predictor as 'bin'
         df_filtered=Dataset_genescores2 %>% filter(genescoresum>=(bin) ) %>% mutate(bin=1)
         Dataset_genescores1_below=Dataset_genescores2 %>% filter(no.pred==0 ) %>% mutate(bin=0)
         Dataset_genescores6=rbind(df_filtered , Dataset_genescores1_below) %>% distinct()
+        # Summary
         genes=length(unique(Dataset_genescores6$gene[Dataset_genescores6$bin==1]))
         parentterm=length(unique(Dataset_genescores6$parentterm[Dataset_genescores6$bin==1]))
         gene_pheno=nrow(df_filtered %>% distinct(gene, parentterm))/nrow(Dataset_genescores2 %>% distinct(gene, parentterm)) *100
         entries=nrow(Dataset_genescores6[Dataset_genescores6$bin==1,])
+        # Logistic regression per bin
         model1 =glm(as.formula(paste0(outcome,' ~ bin +',cov_pred )), data=Dataset_genescores6,family = 'binomial')
         mod_output<-rbind(cbind.data.frame(dataset=dataset, outcome=outcome,score=score, genescoresum =bin, Percentile=round(df_filtered$percent[1],5) , genes=genes, parentterms=parentterm,gene_pheno_percentage=gene_pheno, entries=entries, OR=exp(summary(model1)$coefficient[2,1]),lowerCI=exp(summary(model1)$coefficient[2,1]-(1.96* summary(model1)$coefficient[2,2])),upperCI=exp(summary(model1)$coefficient[2,1]+(1.96* summary(model1)$coefficient[2,2])),P.val=summary(model1)$coefficient[2,4],
-                                           analysis=paste0('inhibitor')))
+                                           analysis=paste0(moadrug)))
         return(mod_output)   
       }, mc.cores=10))                      
       
@@ -598,50 +584,19 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
       binned_gps3$CI=paste0(round(binned_gps3$lowerCI,1), '-',round(binned_gps3$upperCI,1))
       binned_gps3$P.val=ifelse(binned_gps3$P.val==0,round(.Machine$double.xmin,311),binned_gps3$P.val)
       
-      write.table(binned_gps3, paste0(analysisdir,'Binned_by_sum_binsize0.3_',dataset,'_',score,'_DOE_inhibitor.txt'), sep='\t', quote=F, row.names=F)
-      
-    } else {
-      dataset1_moa=dataset1 %>% filter(moa=='activator')
-      dataset1_moa_pt=dataset1_moa %>% filter(se==1)
-      dataset1_moa1=subset(dataset1_moa, (parentterm %in% dataset1_moa_pt$parentterm))
-      dataset1_moa1= dataset1_moa1 %>% select(drugname:moa)
-      Dataset_genescores_score=Dataset_genescores1 %>% select(drugname , gene, parentterm,genescoresum,no.pred,percent)
-      
-      Dataset_genescores2=inner_join(Dataset_genescores_score,dataset1_moa1)
-      cov_pred=paste0('category') 
-      
-      binned_gps3<-do.call(rbind,mclapply(c(seq(0,2.1,0.3)), function(bin) {
-        print(bin)
-        df_filtered=Dataset_genescores2 %>% filter(genescoresum>=(bin) ) %>% mutate(bin=1)
-        Dataset_genescores1_below=Dataset_genescores2 %>% filter(no.pred==0 ) %>% mutate(bin=0)
-        Dataset_genescores6=rbind(df_filtered , Dataset_genescores1_below) %>% distinct()
-        genes=length(unique(Dataset_genescores6$gene[Dataset_genescores6$bin==1]))
-        parentterm=length(unique(Dataset_genescores6$parentterm[Dataset_genescores6$bin==1]))
-        gene_pheno=nrow(df_filtered %>% distinct(gene, parentterm))/nrow(Dataset_genescores2 %>% distinct(gene, parentterm)) *100
-        entries=nrow(Dataset_genescores6[Dataset_genescores6$bin==1,])
-        model1 =glm(as.formula(paste0(outcome,' ~ bin +',cov_pred )), data=Dataset_genescores6,family = 'binomial')
-        mod_output<-rbind(cbind.data.frame(dataset=dataset, outcome=outcome,score=score, genescoresum =bin, Percentile=round(df_filtered$percent[1],5) , genes=genes, parentterms=parentterm,gene_pheno_percentage=gene_pheno, entries=entries, OR=exp(summary(model1)$coefficient[2,1]),lowerCI=exp(summary(model1)$coefficient[2,1]-(1.96* summary(model1)$coefficient[2,2])),upperCI=exp(summary(model1)$coefficient[2,1]+(1.96* summary(model1)$coefficient[2,2])),P.val=summary(model1)$coefficient[2,4],
-                                           analysis=paste0('activator')))
-        return(mod_output)   
-      }, mc.cores=10))                      
-      
-      binned_gps3 %>% select(genescoresum, Percentile, OR,entries) %>% mutate(percent=100-Percentile, OR=round(OR,2))
-      binned_gps3$CI=paste0(round(binned_gps3$lowerCI,1), '-',round(binned_gps3$upperCI,1))
-      binned_gps3$P.val=ifelse(binned_gps3$P.val==0,round(.Machine$double.xmin,311),binned_gps3$P.val)
-      write.table(binned_gps3, paste0(analysisdir,'Binned_by_sum_binsize0.3_',dataset,'_',score,'_DOE_activator.txt'), sep='\t', quote=F, row.names=F)
-      
-    }
+    write.table(binned_gps3, paste0(analysisdir,'Binned_by_sum_binsize0.3_',dataset,'_',score,'_DOE_',moadrug,'.txt'), sep='\t', quote=F, row.names=F)
     
     return(ta1_gps_direction)
   }))
 }))
+# Save univariate analysis results
 
 write.table(UNIVAR, paste0(analysisdir,'Univar_segps_doe_DOE_moadrug.txt'), sep='\t', quote=F, row.names=F)
 
 # --- Create plot ---
 
 UNIVAR<-fread(paste0(analysisdir,'Univar_segps_doe_DOE_moadrug.txt'), data.table=F)
-
+# format data for plot
 univar_doe <- UNIVAR %>%
   dplyr::mutate(
     score = gsub('pos', 'Positive\nSE-GPS DOE', score),
@@ -662,46 +617,36 @@ univar_doe$CI= paste0(round(univar_doe$OR,1),' (', round(univar_doe$lowerCI,1), 
 univar_doe$dataset=ifelse(univar_doe$dataset=='Onsides','Onsides', 'Open Targets')
 univar_doe$dataset <- factor(univar_doe$dataset, levels = (unique(univar_doe$dataset)))
 
-
-fp_all <- ggplot(data=univar_doe ,aes(y=score, x=OR, color=dataset))+
-  geom_point(size=2, aes( shape=Pval_sig,color=dataset),stroke =1.5, position = position_dodge2(width =0.5)) +  
-  scale_shape_manual(values=shape_vals) +guides(shape = "none") + 
-  geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black',position = position_dodge2(width =0.5)) +
-  xlab("Odds ratio") +  ylab('') +  coord_cartesian(c(0,max(univar_doe$upperCI))) +
-  scale_y_discrete(limits = rev(levels(univar_doe$score))) +
-  geom_vline(xintercept=1, linetype='longdash', color='red') + 
-  theme(axis.text=element_text(size=13), axis.title=element_text(size=12),strip.text = element_text(size = 13), 
-        legend.text=element_text(size=12), legend.title=element_blank()) +
-  theme(axis.text=element_text(size=13), axis.title=element_text(size=15),strip.text = element_text(size = 13))  +
-  theme_classic() +
-  theme(axis.line = element_line(colour = 'black', size = 0.5), 
-        axis.ticks.y = element_line(colour = "black", size = 0.5),
-        axis.ticks.x = element_line(colour = "black", size = 0.5),
-        axis.ticks.length = unit(0.25, "cm")) +
-  theme(axis.text.x=element_text(color = "black",),
-        axis.text.y=element_text(color = "black"),
-        axis.title=element_text(color = "black"))+ scale_color_discrete(name="") + guides(color = guide_legend(reverse = TRUE))
-
-
-if((any(!is.na(univar_doe$upperCI_cut)))){ 
-  fp_all<-fp_all + scale_x_continuous(limits=c(0,maxor)) +
-    geom_segment(aes(x = lowerCI , xend = upperCI_cut, y = score, yend = score ), arrow = arrow(length = unit(0.25, "cm")))
-}
-
-library(patchwork)
 ORlabels=univar_doe  %>% select(score,dataset,CI) %>% arrange(desc(dataset)) %>% group_by(score) %>% dplyr::summarise(Label=paste0(CI,collapse='\n') )
 
-p_right_all <- 
-  ORlabels %>%
-  ggplot() +
-  geom_text(
-    aes(x = 0, y = score, label = Label),size =3,
-    hjust = 0  ) + ggtitle('Odds ratio (95% CI)') +  
-  scale_y_discrete(limits = rev(levels(univar_doe$score))) +
-  theme_void() + theme(plot.title = element_text(size =10, hjust = 0.84))
+fp <- create_forest_plot(df = univar_doe,
+                         yvar = "score", 
+                         shapevar = "Pval_sig",
+                         colorvar = "dataset",
+                         ci_lower = "lowerCI",
+                         ci_upper = "upperCI",
+                         y_levels = univar_doe$score,
+                         shape_vals = shape_vals,
+                         coord_limit = max(univar_doe$upperCI))
 
-fp3 <- fp_all + plot_spacer() + p_right_all + plot_layout(widths = c(4, -1.5,3.5) ,guides = "collect") & theme(legend.position = "bottom",legend.box = "horizontal",legend.justification = "left")
+  # if CI are too long add arrows at upper cut off 
+if (any(!is.na(univar_doe$upperCI_cut))) {
+    fp <- add_arrows(fp, maxor, "score")
+  }
 
+                         
+
+p_right_all <- make_side_labels(df = ORlabels,
+                                yvar = "score", 
+                                label = "Label", 
+                                y_levels = univar_doe$score,
+                                size = 3.1, 
+                                hjust_size = 0.72 )
+
+fp3 <- combine_plots(fp = fp,
+                     labels_plot = p_right_all, 
+                     widths = c(4,-1.5,3.5),
+                     legend = "bottom")
 
 Filename1=paste0(plots_dir,'/Figure6_univar_DOE_moamatch.png')
 ggsave(fp3, file=Filename1, width = 5, height=4)
@@ -737,83 +682,29 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     max_uci <- round(ifelse(max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])>max_value,max_value , max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])+1))
     
     title_PLT=unique(binned_gps2$DOE)
-    plot1=ggplot(data=binned_gps2, aes(x=genescoresum, y=OR)) + 
-      geom_point(aes(color=OR,shape =or_sig),position=position_dodge(width=0.2),size=2.5, stroke=1.5)  + xlab('SE-GPS bins') + ylab('Odds ratio (95% CI)') +
-      scale_shape_manual(values=shape_vals) +guides(shape = "none") + ggtitle(paste(title_PLT ))+ 
-      scale_x_discrete(limits = (levels(binned_gps2$genescoresum))) +
-      geom_linerange(aes(ymin=lowerCI, ymax=upperCI,color=OR),position=position_dodge(width=0.2)) +
-      scale_color_gradient(low = ("blue"), high = ("red"), limits = c(0, 6), breaks = c(0, 2, 4, 6), labels = c(0,2, 4, 6), oob = scales::squish  ) + #OR colour scale
-      geom_hline(yintercept=1, color = "grey") +
-      coord_cartesian(ylim=c(-0.5,max_uci), clip='off') +
-      theme_classic() +
-      theme(axis.text.x=element_text(size=13,angle=45, vjust = 1, hjust=1,color = "black"), axis.title=element_text(size=15),
-            legend.text=element_text(size=13), legend.title=element_text(size=13) ) + 
-      theme(axis.line = element_line(colour = 'black', size = 0.5), 
-            axis.ticks.y = element_line(colour = "black", size = 0.5),
-            axis.ticks.x = element_line(colour = "black", size = 0.5),
-            axis.ticks.length = unit(0.25, "cm")) +
-      theme(
-        axis.text.y=element_text(color = "black",size=13),
-        axis.title=element_text(color = "black")) +
-      theme(plot.margin=margin(10,20,10,10)) +   scale_y_continuous(limits=c(0,max_uci)) 
     
-    if(length(binned_gps2$upperCI_cut[!is.na(binned_gps2$upperCI_cut)])>=1){
-      plot1 <- plot1 +
-        geom_segment(aes(x = genescoresum , xend = genescoresum, y = lowerCI, yend = upperCI_cut , color = OR), arrow = arrow(length = unit(0.25, "cm")))
-    } 
-    
-    library(grid)
-    library(gridExtra)
-    library(gtable)
-    library(scales)
-    
-    ### include table
-    # options(digits = 3, scipen = -2)
-    
-    format_values <- function(x) {
-      if (abs(x) > 30 || abs(x) < 0.1) {
-        return(formatC(x, format = "e", digits = 1))
-      } else {
-        return(round(x,1))
+    plot_binned_or_with_table(
+      binned_gps2 = binned_gps2,
+      dataset = dataset, 
+      title_PLT = title_PLT, 
+      shape_vals = shape_vals,
+      max_uci = max_uci,
+      filename=if(dataset=='Opentargets'){
+        paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'_prac.png')
+      } else{
+        paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'_prac.png')
       }
-    }
-    binned_gps2$upperCI2 <- sapply(binned_gps2$upperCI, format_values)
-    binned_gps2$lowerCI2 <- sapply(binned_gps2$lowerCI, format_values)
-    binned_gps2$CI2=paste0(binned_gps2$lowerCI2,' - ',binned_gps2$upperCI2)
-    binned_gps2$OR2 <- sapply(binned_gps2$OR, format_values)
-    
-    table_thres=binned_gps2 %>% distinct(genescoresum, Percentile,genes,parentterms,OR2, CI2,P.val) %>% mutate(Percentile=round(Percentile,2), P.val=sprintf("%.2e", P.val) ) %>% dplyr::rename(`SE-GPS`=genescoresum,OR=OR2,CI=CI2, Genes=genes, Phenotypes=parentterms,`P-value`=P.val)
-    g = tableGrob(table_thres, rows=NULL, theme=ttheme_minimal(core=list(bg_params=list(fill="white")), colhead=list(bg_params=list(fill="white"))))
-    g <- gtable_add_grob(g,
-                         grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                         t = 2, b = nrow(g), l = 1, r = ncol(g))
-    g <- gtable_add_grob(g,
-                         grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                         t = 1, l = 1, r = ncol(g))
-    
-    
-    if(dataset=='Opentargets'){
-      
-      filename1=paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
-    } else{
-      filename1=paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
-    }
-    
-    png(file=filename1, width=500,height=600)
-    grid.arrange(plot1,g,
-                 nrow = 2,
-                 heights = c(2, 1)) 
-    dev.off() 
-    
-    
+        )
   })
 })
 
 
+#############################################
+# Create additional Supplementary figures
+#############################################
 
-#  Supplementary Fig. 1 
 
-#  Supplementary Fig. 2
+#  Supplementary Fig. 1  and Supplementary Fig. 2
 
 library(UpSetR)
 library(viridis)
@@ -952,32 +843,28 @@ lapply(c('Opentargets','Onsides'), function(dataset){
   univar_data_outcome$CI= ifelse( univar_data_outcome$upperCI>100, paste0(round(univar_data_outcome$OR,1),' (', round(univar_data_outcome$lowerCI,1), ' - ', format(round(univar_data_outcome$upperCI,1), nsmall = 1),')')
                                   , paste0(round(univar_data_outcome$OR,1),' (', round(univar_data_outcome$lowerCI,1), ' - ', round(univar_data_outcome$upperCI,1),')'))
   
-  fp_all <- ggplot(data=univar_data_outcome, aes(y=predictors, x=OR,color=Category))+facet_wrap(~Analysis) +
-    geom_point(size=2, aes( shape=Pval_sig, color=Category),stroke =1.5, position = position_dodge2(width =0.5)) +  
-    scale_shape_manual(values=shape_vals) +guides(shape = "none") + 
-    geom_linerange(aes(xmin=lowerCI, xmax=upperCI),color='black') +
-    xlab("Odds ratio") + ylab('') +  coord_cartesian(c(0,maxor)) +
-    scale_y_discrete(limits = rev(levels(univar_data_outcome$predictors))) +
-    geom_vline(xintercept=1, linetype='longdash', color='red') +
-    theme(axis.text=element_text(size=14), axis.title=element_text(size=14),strip.text = element_text(size = 13),legend.position = "bottom")  +
-    theme_classic() +
-    theme(axis.line = element_line(colour = 'black', size = 0.5), 
-          axis.ticks.y = element_line(colour = "black", size = 0.5),
-          axis.ticks.x = element_line(colour = "black", size = 0.5),
-          axis.ticks.length = unit(0.25, "cm")) +
-    theme(axis.text.x=element_text(color = "black",),
-          axis.text.y=element_text(color = "black"),
-          axis.title=element_text(color = "black") ) 
   
-  if((any(!is.na(univar_data_outcome$upperCI_cut)))){ 
-    fp_all<-fp_all +   scale_x_continuous(limits=c(0,maxor)) +
-      geom_segment(aes(x = lowerCI , xend = upperCI_cut, y = predictors, yend = predictors,color=Category ), arrow = arrow(length = unit(0.25, "cm"))) }
+  fp <- create_forest_plot(df = univar_data_outcome,
+                           yvar = "predictors", 
+                           shapevar = "Pval_sig",
+                           colorvar = "Category",
+                           ci_lower = "lowerCI",
+                           ci_upper = "upperCI",
+                           y_levels = univar_data_outcome$predictors,
+                           shape_vals = shape_vals,
+                           coord_limit = maxor)
   
-  fp3 <- fp_all & theme(legend.position = "bottom")
+  fp <- fp  +  facet_wrap(~Analysis) & theme(legend.position = "bottom")
+  
+  # if CI are too long add arrows at upper cut off 
+  if (any(!is.na(univar_data_outcome$upperCI_cut))) {
+    fp <- add_arrows(fp, maxor, "predictors")
+  }
+
   if(dataset=='Opentargets'){
-    ggsave(fp3, file=paste0(plots_dir,'/Sup_Fig4_Forestplot_Univar_bycategory_',dataset,'.png'), width = 8, height=8, dpi=300)
+    ggsave(fp, file=paste0(plots_dir,'/Sup_Fig4_Forestplot_Univar_bycategory_',dataset,'.png'), width = 8, height=8, dpi=300)
   } else{
-    ggsave(fp3, file=paste0(plots_dir,'/Sup_Fig5_Forestplot_Univar_bycategory_',dataset,'.png'), width = 8, height=8, dpi=300)
+    ggsave(fp, file=paste0(plots_dir,'/Sup_Fig5_Forestplot_Univar_bycategory_',dataset,'.png'), width = 8, height=8, dpi=300)
   }
 })
 
@@ -1024,7 +911,9 @@ lapply(c('All','DOE'), function(analysis){
           axis.line = element_line(colour = 'black', size = 0.5), 
           axis.ticks = element_line(colour = "black", size = 0.5),
           axis.ticks.length = unit(0.25, "cm"),
-          plot.margin=margin(10,20,10,10)) + theme_bw()
+          plot.margin=margin(10,20,10,10)) +
+    theme_bw()
+  
   if(analysis=='All'){
     filename=paste0(plots_dir,'/Sup_Fig6_Mixedmodel_',dataset,'_outcometrained_',outcome_trained,'_multivariatemodel_results.png')  
   } else{
@@ -1199,8 +1088,6 @@ lapply(c('Onsides','Opentargets'), function(dataset){
       ggsave(bp, file=paste0(plots_dir,'/Sup_Fig15_barplot_counts_genescoresumbins_',dataset,'_',analysis,'.png'), width=7, height=6, dpi=300)
     }
     
-    
-    
   })
 })
 
@@ -1258,4 +1145,8 @@ venn.diagram(
   output = TRUE
 )
 
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+print(time.taken)
 
