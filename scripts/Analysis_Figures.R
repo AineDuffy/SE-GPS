@@ -484,9 +484,9 @@ lapply(c('Onsides','Opentargets'), function(dataset){
       shape_vals = shape_vals,
       max_uci = max_uci,
       filename = if(drugs=='withdrugs'){
-        filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','_prac.png')
+        filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
       } else {
-        filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','_prac.png')
+        filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
       }
     )
     
@@ -690,9 +690,9 @@ lapply(c('Onsides','Opentargets'), function(dataset){
       shape_vals = shape_vals,
       max_uci = max_uci,
       filename=if(dataset=='Opentargets'){
-        paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'_prac.png')
+        paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
       } else{
-        paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'_prac.png')
+        paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
       }
         )
   })
