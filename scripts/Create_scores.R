@@ -23,7 +23,7 @@ if (!dir.exists(tables_dir)) {
 start.time <- Sys.time()
 print(start.time)
 
-set.seed(18)
+set.seed(12)
 
 geneticpredictors= c('clinicalvariant', 'gwastrait','geneburden','singlevar') 
 
@@ -73,7 +73,6 @@ library(data.table)
 # 2. Run mixed model in 80% training set 
 #######################################
 
-opentarget_fulldataset<-fread(datafile, data.table=F)
 opentarget_fulldataset$ID=paste0(opentarget_fulldataset$drugname,'-',opentarget_fulldataset$gene,'-',opentarget_fulldataset$parentterm)
 
 # Combine the mixed effects results model across 5 cross-validation (CV) samples
@@ -89,7 +88,7 @@ Mixedmodel_all<-do.call(rbind, lapply(c(paste0('CVsample',rep(1:5))), function(C
   dataset_sampled80_ADR$severity_score_round=round(dataset_sampled80_ADR$severity_score*100)
   Predictors=paste0(paste(geneticpredictors,collapse='+'), '+category ')
   #Run mixedmodel regression across each CV training dataset to get weights with drugname as a random effect
-  mod_se_mixed <- glmer(as.formula(paste0(outcome, " ~ ", paste(Predictors), " +(1 | drugname)")),
+  mod_se_mixed <- glmer(as.formula(paste0(outcome, " ~ ", paste(Predictors), " + (1 | drugname)")),
                         family = "binomial",
                         data = dataset_sampled80_ADR,
                         control = glmerControl(optimizer = "bobyqa"),nAGQ=0L,

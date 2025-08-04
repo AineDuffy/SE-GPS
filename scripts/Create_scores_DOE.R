@@ -41,7 +41,6 @@ for(i in 1:length(splitdata_gp)){
   write.table(test_set, gzfile(filename), sep='\t', quote=F, row.names=F)
 }
 
-
 # unload and reload required libraries
 unloadNamespace("data.table")
 unloadNamespace("dplyr")
@@ -65,15 +64,10 @@ dataset='Opentargets';independent='onside';outcome='senomi_phase4'
 geneticpredictors= c('clinicalvariant', 'gwastrait','geneburden','singlevar')
 Predictor_names= data.frame(from = geneticpredictors, to = c("clinicalvariant_DOE","gwastrait_doe","geneburden_doe","singlevar_doe"))
 
-#load full Open Target dataset
-datafile<-list.files(path='Data/', pattern='Opentargets_dataset_se.mi_withgenetics', full.names=T)
-opentarget_fulldataset<-fread(datafile, data.table=F)
-opentarget_fulldataset$ID=paste0(opentarget_fulldataset$drugname,'-',opentarget_fulldataset$gene,'-',opentarget_fulldataset$parentterm)
-
 #load the Open target drug-genetic dataset with directional predictors
 #Directional dataset restricted to drugs with either an activator or inhibitor mechanism 
 doedatafile<-list.files(path='Data/', pattern='DOE', full.names=T)
-doedatafile=doedatafile[grepl(paste0('Opentargets'), doedatafile)]
+doedatafile=doedatafile[grepl(paste0('Opentargetsgeneticdataset_filtered'), doedatafile)]
 
 doe_dataset<-fread(doedatafile, data.table=F)
 doe_dataset1<-doe_dataset[c('drugname','gene','parentterm','se','senomi_phase4','moa')]

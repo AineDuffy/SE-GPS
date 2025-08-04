@@ -17,6 +17,7 @@ library(gridExtra)
 library(gtable)
 library(scales)
 library(UpSetR)
+library('openxlsx')
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -30,7 +31,8 @@ scorefolder<-'results/construct_scores/'
 analysisdir<- 'results/analysis_results/'
 outcome_trained='senomi_phase4';outcome='senomi_phase4'
 plots_dir='results/plots/'
-
+tables_dir='results/tables/'
+source_data_dir = 'sourcedata'
 
 if (!dir.exists(analysisdir)) {
   dir.create(analysisdir, recursive = TRUE)
@@ -38,6 +40,10 @@ if (!dir.exists(analysisdir)) {
 
 if (!dir.exists(plots_dir)) {
   dir.create(plots_dir, recursive = TRUE)
+}
+
+if (!dir.exists(source_data_dir)) {
+  dir.create(source_data_dir, recursive = TRUE)
 }
 
 geneticpredictors= c('clinicalvariant', 'gwastrait','geneburden','singlevar') 
@@ -52,12 +58,12 @@ Category_names= data.frame(predictors=c('ClinicalVariant','GWA trait', 'GeneBurd
 
 # --- Run model ---
 
-lapply(c('Opentargets','Onsides'), function(dataset){
+univariate_model<-do.call(rbind, lapply(c('Opentargets','Onsides'), function(dataset){
   
   datafile<-list.files(path='Data/', pattern='dataset_se.mi_withgenetics', full.names=T)
   datafile=datafile[grepl(paste0(dataset), datafile)]
   dataset1<-fread(datafile, data.table=F)
-  
+
   # Run univariate logistic regression models for each genetic predictor
   univarresults<-do.call(rbind,mclapply(geneticpredictors, function(pheno){
     
@@ -71,7 +77,7 @@ lapply(c('Opentargets','Onsides'), function(dataset){
     model1 =glm(as.formula(paste0(outcome, ' ~', pheno,'+category')), data=dataset1,family = 'binomial')
 
     # Extract regression results (coefficients, confidence intervals, p-values)
-    ta1<-rbind(cbind.data.frame(outcome=outcome,Analysis='Full', predictors=names(model1$coefficients)[!grepl('category|Inter', names(model1$coefficients))],
+    ta1<-rbind(cbind.data.frame(outcome=outcome, dataset = dataset, Analysis='Full', predictors=names(model1$coefficients)[!grepl('category|Inter', names(model1$coefficients))],
                                 No.genes=length(unique(genes_pred$gene)), No.parentterms=length(unique(PT_pred$parentterm)),
                                 No.genes.outcome=length(unique(genes_pred_outcome$gene)), No.parentterms.outcome=length(unique(PT_pred_outcome$parentterm)),
                                 OR=round(exp(summary(model1)$coefficient[,1])[!grepl('category|Inter', names(model1$coefficients))],3),
@@ -126,10 +132,17 @@ lapply(c('Opentargets','Onsides'), function(dataset){
                        legend = "bottom")
   
 ggsave(fp3, file=paste0(plots_dir,'/Figure2_forestplot_univar_',dataset,'.png'), width = 6.5, height=5, dpi=300)
-  
-})
+
+return(univar_data_outcome)
+}))
 
 
+source_data_fig2 <- univariate_model %>% select(dataset, predictors:OR,CI,P.val,Category) %>%
+  dplyr::rename(Predictor = predictors, Dataset = dataset,
+                `Number of genes` = No.genes, `Number of phecodeX` = No.parentterms, 
+                `Number of genes (side effect observed)` = No.genes.outcome, `Number of phecodeX (side effect observed)` = No.parentterms.outcome
+                )
+ 
 ##############################################################################
 # Figure 3 -Association of the SE-GPS with drug side effects by groupings
 ##############################################################################
@@ -201,6 +214,7 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
 
         # Extract regression results (coefficients, confidence intervals, p-values)
     Fullmodel<-rbind(cbind.data.frame(Analysis='Full',
+                                      No.entries = Dataset_genescores2 %>% distinct(drugname, gene, parentterm) %>% nrow(),
                                       No.drugs=length(unique(Dataset_genescores2$drugname)), No.genes=length(unique(Dataset_genescores2$gene)),
                                       No.parentterms=length(unique(Dataset_genescores2$parentterm)),
                                       No.outcome=length(unique(Dataset_genescores2$parentterm[Dataset_genescores2[outcome]==1])),
@@ -224,7 +238,9 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
         cov_pred=paste0('category')
         # Run logistic regression model and extract regression results
         model1 =glm(as.formula(paste0(outcome, ' ~ score_all + ', cov_pred)), data=Dataset_genescores1_strat_gene,family = 'binomial')
-        ta1_gps_gene<-rbind(cbind.data.frame(Analysis='Stratified_group', No.drugs=length(unique(Dataset_genescores1_strat_gene$drugname)), No.genes=length(unique(Dataset_genescores1_strat_gene$gene)),
+        ta1_gps_gene<-rbind(cbind.data.frame(Analysis='Stratified_group',
+                                             No.entries = Dataset_genescores1_strat_gene %>% distinct(drugname, gene, parentterm) %>% nrow(),
+                                             No.drugs=length(unique(Dataset_genescores1_strat_gene$drugname)), No.genes=length(unique(Dataset_genescores1_strat_gene$gene)),
                                              No.parentterms=length(unique(Dataset_genescores1_strat_gene$parentterm)),
                                              No.outcome=length(unique(Dataset_genescores1_strat_gene$parentterm[Dataset_genescores1_strat_gene[outcome]==1])),
                                              No.genes.GE=length(unique(Dataset_genescores1_strat_gene$gene[Dataset_genescores1_strat_gene$genescoresum!=0])),
@@ -251,9 +267,9 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
       if(length(unique(Dataset_genescores1_cat$score_all))>1 & length(unique(Dataset_genescores1_cat$senomi_phase4))>1) {
         model1 =glm(as.formula(paste0(outcome, ' ~ score_all ')), data=Dataset_genescores1_cat,family = 'binomial')
         ta1_gps_cat<-rbind(cbind.data.frame( Analysis='ByCategory',
+                                             No.entries = Dataset_genescores1_cat %>% distinct(drugname, gene, parentterm) %>% nrow(),
                                              No.drugs=length(unique(Dataset_genescores1_cat$drugname)), No.genes=length(unique(Dataset_genescores1_cat$gene)),
                                              No.parentterms=length(unique(Dataset_genescores1_cat$parentterm)),
-                                             No.outcome=length(unique(Dataset_genescores1_cat$parentterm[Dataset_genescores1_cat[outcome]==1])),
                                              No.genes.GE=length(unique(Dataset_genescores1_cat$gene[Dataset_genescores1_cat$genescoresum!=0])),
                                              No.parentterms.GE=length(unique(Dataset_genescores1_cat$parentterm[Dataset_genescores1_cat$genescoresum!=0])),
                                              
@@ -267,25 +283,33 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     
   }))
   write.table(Stratified_Regression_analysis, paste0(analysisdir,'Stratified_analysis_full_outcome_trained',outcome_trained,'_',drugs,'.txt'), sep='\t', quote=F, row.names=F)
-  
+  return()
 })
 
-# --- Create forest plot ---
+# --- Create forest plot and source data  ---
 
-lapply(c('withdrugs','withdrawn'), function(drugs){
+dataset_strat_drugs <- do.call(rbind, lapply(c('withdrugs','withdrawn'), function(drugs){
   
-  lapply(c('Opentargets','Onsides'), function(dataset){
+  dataset_strat <- do.call(rbind, lapply(c('Opentargets','Onsides'), function(dataset){
     
     outcomestrat<-fread(paste0(analysisdir,'Stratified_analysis_full_outcome_trained',outcome_trained,'_',drugs,'.txt'), data.table=F)
     univar_data_outcome1 <- outcomestrat %>% filter( dataset == !!dataset)
     # Format plot labels
-    univar_data_outcome1 <- univar_data_outcome1 %>% dplyr::mutate(Stratified_group=gsub('_','',gsub('number_','N ',Stratified_group )), Stratified_group= gsub('genetargets','gene targets',Stratified_group),Stratified_group= gsub('N drugs','N drugs per SE',Stratified_group))
-    univar_data_outcome1$Predictor=paste0(univar_data_outcome1$Stratified_group, ': ', univar_data_outcome1$Level, sep = ' ')
-    univar_data_outcome1$Predictor=gsub('NA: NA ','All',univar_data_outcome1$Predictor)
-    univar_data_outcome1$grouppred=gsub(':.*','',univar_data_outcome1$Predictor)
-    univar_data_outcome_drugs = univar_data_outcome1 %>% filter(grouppred %in% c('All','N gene targets','N drugs per SE','N SE' )) %>% filter(is.na(category))
-    univar_data_outcome_drugs$Pval_sig=ifelse(univar_data_outcome_drugs$P.val>=0.05,0,1)
-    univar_data_outcome_drugs$Pval_sig<-as.factor(univar_data_outcome_drugs$Pval_sig)
+    univar_data_outcome1 <- univar_data_outcome1 %>% 
+      dplyr::mutate(Stratified_group = gsub('_','',gsub('number_','N ', Stratified_group )),
+                    Stratified_group = gsub('genetargets','gene targets', Stratified_group),
+                    Stratified_group = gsub('N drugs','N drugs per SE', Stratified_group),
+                    Predictor = ifelse(is.na(Stratified_group) & is.na(Level), "All", paste0(Stratified_group, ": ", Level)),
+                    grouppred = gsub(':.*','',Predictor))
+    
+
+    univar_data_outcome_drugs = univar_data_outcome1 %>% 
+      filter(grouppred %in% c('All', 'N gene targets', 'N drugs per SE', 'N SE' )) %>% 
+      filter(is.na(category)) %>%
+      mutate(
+        Pval_sig = as.factor(ifelse(P.val >= 0.05, 0, 1))
+      )
+
     
     if(length(unique(univar_data_outcome_drugs$Pval_sig[!is.na(univar_data_outcome_drugs$Pval_sig)]))==1){
       shape_vals=c(19)
@@ -293,13 +317,14 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
       shape_vals=c(1,19)
     }
     univar_data_outcome_drugs$order=rep(length(unique(univar_data_outcome_drugs$Predictor)):1)
-    
+  
     univar_data_outcome_drugs$Predictor<-factor(univar_data_outcome_drugs$Predictor, levels=unique(univar_data_outcome_drugs$Predictor))
     maxor=ifelse(max(univar_data_outcome_drugs$upperCI[!is.na(univar_data_outcome_drugs$upperCI)])>10, 10, max(univar_data_outcome_drugs$upperCI[!is.na(univar_data_outcome_drugs$upperCI)]))
     univar_data_outcome_drugs$upperCI_cut<-ifelse(univar_data_outcome_drugs$upperCI> maxor, maxor, NA)
     univar_data_outcome_drugs$CI= paste0(round(univar_data_outcome_drugs$OR,1),' (', round(univar_data_outcome_drugs$lowerCI,1), ' - ', round(as.numeric(univar_data_outcome_drugs$upperCI),1),')')
     
     ORlabels=univar_data_outcome_drugs %>% mutate(Label=paste0(univar_data_outcome_drugs$CI)) %>% group_by(Predictor)  %>% select(Predictor,Label)
+    
     
     fp <- create_forest_plot(df = univar_data_outcome_drugs,
                              yvar = "Predictor", 
@@ -328,7 +353,8 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     fp3 <- combine_plots(fp = fp,
                          labels_plot = p_right_all, 
                          widths = c(4,-1.5,3.5),
-                         legend = "none")
+                         legend = "bottom",
+                         legend_title = 'Stratified groups')
     
     
     if(drugs=='withdrugs'){
@@ -398,14 +424,51 @@ lapply(c('withdrugs','withdrawn'), function(drugs){
     
 
     if(drugs=='withdrugs'){
-      filename1=paste0(plots_dir,'/Figure3c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
+      figure='Figure3c'
+      filename1=paste0(plots_dir,'/',figure,'_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
     } else {
-      filename1=paste0(plots_dir,'/Sup_Fig10c_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
+      figure='Sup_Fig10c'
+      filename1=paste0(plots_dir,'/',figure,'_forestplot_stratifiedbycategory_GPS_',dataset,'.png')
     }
     ggsave(fp3, file=filename1, width = 7, height=6)
     
-  })
-})
+    source_table <- rbind(univar_data_outcome_drugs %>% mutate(category_full=NA), 
+                          outcomestrat_bycat1 %>% mutate(grouppred=NA, Predictor=category_full)) %>%
+      select(Analysis, Predictor, No.entries, No.drugs:No.outcome, dataset, Level, OR, CI, P.val  ) %>% 
+      mutate(Figure=ifelse(drugs=='withdrugs','Figure3','Sup_Fig10'))
+    
+    return(source_table)
+  }))
+  return(dataset_strat)
+}))
+
+source_data_fig3 <- dataset_strat_drugs %>% filter(Figure=='Figure3') %>% 
+  mutate(Figure = case_when(
+    grepl("Opentargets", dataset) & grepl("Full|Stratified_group", Analysis) ~ 'Fig 3a',
+    grepl("Onsides", dataset) & grepl("Full|Stratified_group", Analysis) ~ 'Fig 3b',
+    grepl("Opentargets", dataset) & grepl("ByCategory", Analysis) ~ 'Fig 3c',
+    grepl("Onsides", dataset) & grepl("ByCategory", Analysis) ~ 'Fig 3d',
+    TRUE ~ NA_character_
+  )) %>%  dplyr::mutate(across(c(No.entries, No.drugs, No.genes, No.parentterms), ~ format(., big.mark = ",", scientific = FALSE))) %>%
+  dplyr::rename(`Total` = No.entries,
+                `Number of drugs` = No.drugs,
+                `Number of genes` = No.genes,
+                `Number of phecodeX` = No.parentterms)  %>% select(-Level)
+
+
+source_data_sup10 <- dataset_strat_drugs %>% filter(Figure=='Sup_Fig10') %>%
+  mutate(Figure = case_when(
+    grepl("Opentargets", dataset) & grepl("Full|Stratified_group", Analysis) ~ 'Sup Fig 10a',
+    grepl("Onsides", dataset) & grepl("Full|Stratified_group", Analysis) ~ 'Sup Fig 10b',
+    grepl("Opentargets", dataset) & grepl("ByCategory", Analysis) ~ 'Sup Fig 10c',
+    grepl("Onsides", dataset) & grepl("ByCategory", Analysis) ~ 'Sup Fig 10d',
+    TRUE ~ NA_character_
+  )) %>%
+  dplyr::mutate(across(c(No.entries, No.drugs, No.genes, No.parentterms), ~ format(., big.mark = ",", scientific = FALSE))) %>%
+  dplyr::rename(`Total` = No.entries,
+                `Number of drugs` = No.drugs,
+                `Number of genes` = No.genes,
+                `Number of phecodeX` = No.parentterms) %>% select(-Level)
 
 
 ##############################################################################
@@ -458,14 +521,15 @@ returnunivar<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset)
 
 # --- Create increased bin plot ---
 
-lapply(c('Onsides','Opentargets'), function(dataset){
-  lapply(c('withdrugs','withdrawn'), function(drugs){
+binnedoutput_all<- do.call(rbind, lapply(c('Onsides','Opentargets'), function(dataset){
+  binnedoutput <- do.call(rbind, lapply(c('withdrugs','withdrawn'), function(drugs){
     
     binned_gps2=fread(paste0(analysisdir,'Binned_by_03_increments_',drugs,'_', dataset,'.txt'), data.table=F)
     binned_gps2$upperCI=as.numeric(binned_gps2$upperCI)
     max_value <- round(max(binned_gps2$OR)) + 5
     binned_gps2$upperCI_cut<-ifelse(binned_gps2$upperCI>max_value ,max_value,NA)
-    binned_gps2$or_sig<-as.factor(ifelse(binned_gps2$P.val>=0.05,0,1))
+    n_tests=length(unique(binned_gps2$genescoresum))
+    binned_gps2$or_sig<-as.factor(ifelse(binned_gps2$P.val>=0.05/n_tests,0,1))
     binned_gps2$genescoresum=factor(binned_gps2$genescoresum)
     if(length(unique(binned_gps2$or_sig[!is.na(binned_gps2$or_sig)]))==1){
       shape_vals=c(19)
@@ -475,26 +539,40 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     
     max_uci <- round(ifelse(max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])>max_value,max_value , max(binned_gps2$upperCI[!is.na(binned_gps2$upperCI)])+1))
     
-    plot_binned_or_with_table(
+    fp_binned <- plot_binned_or(
       binned_gps2 = binned_gps2,
       dataset = dataset, 
       drugs = drugs,
       title_PLT = "",
       score_plt = "score1",
       shape_vals = shape_vals,
-      max_uci = max_uci,
-      filename = if(drugs=='withdrugs'){
-        filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
-      } else {
-        filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
-      }
+      max_uci = max_uci
     )
     
+    filename = if(drugs=='withdrugs'){
+      filename1=paste0(plots_dir,'/Figure4_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
+    } else {
+      filename1=paste0(plots_dir,'/Figure5_Increase_GPS_binned03_',dataset,'_',drugs,'_withtable','.png')
+    }
     
-  })
-})
+    ggsave(fp_binned, file=filename, width = 5.5, height=5)
+   
+    return(binned_gps2) 
+  }))
+}))
 
-##############################################################################
+binnedoutput_all <- binnedoutput_all %>% select(dataset, drugs:parentterms, OR, lowerCI, upperCI ,P.val) %>%
+  rename(bin = genescoresum, number_phecodeX = parentterms, number_genes = genes) %>% 
+  mutate(drugs = ifelse(drugs=='withdrugs', 'All', 'Severe')) %>%
+  dplyr::rename(Dataset = dataset, Bin =bin, `Number of genes` = number_genes, `Number of phecodeX` = number_phecodeX) 
+
+
+source_data_fig4 <- binnedoutput_all %>% filter(drugs == 'All') %>%
+  select(-drugs)
+source_data_fig5 <- binnedoutput_all %>% filter(drugs == 'Severe') %>%
+  select(-drugs)
+
+############################################################################## 
 # Figure 6 -Association of the SE-GPS-DOE with drug side effects 
 ##############################################################################
 
@@ -502,7 +580,8 @@ UNIVAR<-do.call(rbind,lapply(c('Onsides','Opentargets'), function(dataset){
   #Load SE-GPS-DOE data
   Genescores_beta_genetic_CV=fread(paste0(scorefolder, 'All_genescoresum_across_all_predictors_',dataset,'_outcome_',outcome_trained,'_sideeffectproject_DOE.txt.gz'), data.table=F)
   doedatafile<-list.files(path='Data/', pattern='DOE', full.names=T)
-  doedatafile=doedatafile[grepl(paste0(dataset), doedatafile)]
+  doedatafile=doedatafile[grepl(paste0(dataset,'geneticdataset_filtered'), doedatafile)]
+
   print(doedatafile)
   # Annotate scores as 'pos', 'neg', or 0
   Genescores_beta_genetic_CV$score=0
@@ -627,14 +706,13 @@ fp <- create_forest_plot(df = univar_doe,
                          ci_upper = "upperCI",
                          y_levels = univar_doe$score,
                          shape_vals = shape_vals,
-                         coord_limit = max(univar_doe$upperCI))
+                         coord_limit = max(univar_doe$upperCI)) +
+   theme(legend.title=element_blank())
 
   # if CI are too long add arrows at upper cut off 
 if (any(!is.na(univar_doe$upperCI_cut))) {
     fp <- add_arrows(fp, maxor, "score")
   }
-
-                         
 
 p_right_all <- make_side_labels(df = ORlabels,
                                 yvar = "score", 
@@ -646,16 +724,19 @@ p_right_all <- make_side_labels(df = ORlabels,
 fp3 <- combine_plots(fp = fp,
                      labels_plot = p_right_all, 
                      widths = c(4,-1.5,3.5),
-                     legend = "bottom")
+                     legend = "bottom") 
 
 Filename1=paste0(plots_dir,'/Figure6_univar_DOE_moamatch.png')
 ggsave(fp3, file=Filename1, width = 5, height=4)
 
+source_data_fig6 <- univar_doe %>% select(dataset, score,  OR: P.val)  %>%
+  dplyr::rename(Dataset = dataset, Score =score)
+
 # --- Create binned by increment se-gps-doe plot ---
 
-lapply(c('Onsides','Opentargets'), function(dataset){
+source_data_binned <- do.call(rbind, lapply(c('Onsides','Opentargets'), function(dataset){
   
-  lapply(c('pos','neg'), function(score_plt){
+  score_plt_output <- do.call(rbind, lapply(c('pos','neg'), function(score_plt){
     if(score_plt=='pos'){
       binned_gps1=fread(paste0(analysisdir,'Binned_by_sum_binsize0.3_',dataset,'_',score_plt,'_DOE_inhibitor.txt'), data.table=F)
     } else{
@@ -665,6 +746,9 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     binned_gps2=binned_gps2  %>% filter(genescoresum!=2.1)  
     max_value=20
     binned_gps2$upperCI_cut<-ifelse(binned_gps2$upperCI>max_value ,binned_gps2$OR+6,NA) 
+    n_tests=length(unique(binned_gps2$genescoresum))
+    binned_gps2$or_sig<-as.factor(ifelse(binned_gps2$P.val>=0.05/n_tests,0,1))
+    
     binned_gps2$or_sig<-ifelse(binned_gps2$P.val>=0.05,0,1)
     binned_gps2$or_sig<-as.factor(binned_gps2$or_sig)
     binned_gps2$genescoresum=factor(binned_gps2$genescoresum)
@@ -683,29 +767,44 @@ lapply(c('Onsides','Opentargets'), function(dataset){
     
     title_PLT=unique(binned_gps2$DOE)
     
-    plot_binned_or_with_table(
+    fp_binned_doe <- plot_binned_or(
       binned_gps2 = binned_gps2,
       dataset = dataset, 
       title_PLT = title_PLT, 
       shape_vals = shape_vals,
-      max_uci = max_uci,
+      max_uci = max_uci)
+    
       filename=if(dataset=='Opentargets'){
-        paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
+        filename1 = paste0(plots_dir,'/Sup_Fig16_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
       } else{
-        paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
+        filename1 = paste0(plots_dir,'/Sup_Fig17_Increase_SEGPS_DOE_binned03_',dataset,'_',score_plt,'.png')
       }
-        )
-  })
-})
+
+
+    ggsave(fp_binned_doe, file=filename1, width = 5.5, height=5)
+    
+    
+    
+    return(binned_gps2)
+  }))
+  
+  return(score_plt_output)
+}))
+
+
+source_data_binned1 <- source_data_binned %>% select(dataset, DOE, genescoresum:parentterms, OR, lowerCI, upperCI ,P.val) %>%
+  dplyr::rename(Dataset = dataset, `Number of genes` = genes, `Number of phecodeX` = parentterms)
+
+source_data_sup_fig16 <- source_data_binned1 %>% filter(Dataset == 'Opentargets')  %>% mutate(Dataset = 'Open Targets') 
+source_data_sup_fig17 <- source_data_binned1 %>% filter(Dataset == 'Onsides') %>% mutate(Dataset = 'OnSIDES')
+
 
 
 #############################################
 # Create additional Supplementary figures
 #############################################
 
-
-#  Supplementary Fig. 1  and Supplementary Fig. 2
-
+#  Supplementary Fig. 2, 11 & 12
 library(UpSetR)
 library(viridis)
 
@@ -777,6 +876,7 @@ df_counts_percat$order=rep(length(unique(df_counts_percat$category_full)):1)
 df_counts_percat$category_full<-factor(df_counts_percat$category_full, levels=unique(df_counts_percat$category_full[order(df_counts_percat$order, decreasing=FALSE)]))
 df_counts_percat$dataset <- factor(df_counts_percat$dataset, levels = c("Opentargets", "Onsides"))  # 
 
+
 bp <- ggplot(df_counts_percat, aes(fill=n, y=n, x=category_full)) + 
   geom_col() +
   coord_flip() +
@@ -790,10 +890,11 @@ bp <- ggplot(df_counts_percat, aes(fill=n, y=n, x=category_full)) +
             color = "black", size = 3.5) 
 ggsave(bp, file=paste0(plots_dir,'/Sup_Fig3_side_effect_countbycategory.png'), width=7, height=6, dpi=300)
 
+source_data_sup3 <- df_counts_percat %>% dplyr::rename(`Category` = category_full, `Number of drug-side effect pairs` = n) %>% select(-order)
 # Supplementary Fig 4 and 5
 
 #a. Run univariate model for each genetic feature 
-lapply(c('Opentargets','Onsides'), function(dataset){
+univar_model_strat <- do.call(rbind, lapply(c('Opentargets','Onsides'), function(dataset){
   
   datafile<-list.files(path='Data/', pattern='dataset_se.mi_withgenetics', full.names=T)
   datafile=datafile[grepl(paste0(dataset), datafile)]
@@ -811,9 +912,9 @@ lapply(c('Opentargets','Onsides'), function(dataset){
       se_pred_gene_outcome=dataset_cat %>% distinct(parentterm,.data[[pheno]],.data[[outcome]]) %>% filter(.data[[outcome]]==1)
       
       model1 =glm(as.formula(paste0(outcome, ' ~', pheno)), data=dataset_cat,family = 'binomial')
-      ta1<-rbind(cbind.data.frame(outcome=outcome,Analysis=paste('Bycategory', category_single), predictors=names(model1$coefficients)[!grepl('category|Inter', names(model1$coefficients))],
+      ta1<-rbind(cbind.data.frame(outcome=outcome, dataset = dataset, Analysis=paste('Bycategory', category_single), predictors=names(model1$coefficients)[!grepl('category|Inter', names(model1$coefficients))],
+                                  No.entries = dataset_cat %>% distinct(drugname, gene, parentterm) %>% nrow(),
                                   No.genes=length(unique(genes_pred$gene)), No.parentterms=length(unique(PT_pred$parentterm)),
-                                  No.genes.outcome=length(unique(genes_pred_outcome$gene)), No.parentterms.outcome=length(unique(PT_pred_outcome$parentterm)), total.genes=length(unique(dataset_cat$gene)),  total.parentterm=length(unique(dataset_cat$parentterm)), 
                                   OR=round(exp(summary(model1)$coefficient[,1])[!grepl('category|Inter', names(model1$coefficients))],3), 
                                   lowerCI=round(exp(summary(model1)$coefficient[,1][!grepl('category|Inter', names(model1$coefficients))]-(1.96* summary(model1)$coefficient[,2][!grepl('category|Inter', names(model1$coefficients))])),3),
                                   upperCI=round(exp(summary(model1)$coefficient[,1][!grepl('category|Inter', names(model1$coefficients))]+(1.96* summary(model1)$coefficient[,2][!grepl('category|Inter', names(model1$coefficients))])),3),P.val=summary(model1)$coefficient[,4][!grepl('category|Inter', names(model1$coefficients))]))
@@ -822,6 +923,9 @@ lapply(c('Opentargets','Onsides'), function(dataset){
     }, mc.cores=10))
     
   }, mc.cores=4))
+  
+  
+  
   
   
   univar_data_outcome <- univarresults_byphecodecat  %>% mutate(upperCI=as.numeric(upperCI),Pval_sig=as.factor(ifelse(P.val>=0.05,0,1)), Analysis=gsub('Bycategory ','',Analysis))
@@ -866,7 +970,20 @@ lapply(c('Opentargets','Onsides'), function(dataset){
   } else{
     ggsave(fp, file=paste0(plots_dir,'/Sup_Fig5_Forestplot_Univar_bycategory_',dataset,'.png'), width = 8, height=8, dpi=300)
   }
-})
+
+  return(univar_data_outcome)
+}))
+
+
+univar_model_strat1 <- univar_model_strat %>% select(dataset, predictors:OR,CI,P.val,Category) %>%
+  dplyr::rename(Predictor = predictors, Dataset = dataset,`Total` = No.entries,`Number of drugs` = No.drugs,
+                `Number of genes` = No.genes, `Number of phecodeX` = No.parentterms) 
+
+
+
+
+source_data_supfig4 <- univar_model_strat1 %>% filter(Dataset == 'Opentargets') 
+source_data_supfig5 <- univar_model_strat1 %>% filter(Dataset == 'Onsides') 
 
 
 ## Sup Fig 6 and 14, Table S1 and S3
@@ -925,7 +1042,6 @@ lapply(c('All','DOE'), function(analysis){
 
 
 ## Sup Figure 7
-
 
 #### Violin and Bar plots
 geneticpredictors2=c( 'clinicalvariant_1','clinicalvariant_2','clinicalvariant_3','gwastrait','geneburden','singlevar')
@@ -1115,6 +1231,10 @@ ggsave(dist, file=paste0(plots_dir,'/Sup_Fig8b_distribution_scores_density_nonze
 library(VennDiagram)
 
 ot=fread('Data/Opentargets_dataset_se.mi_withgeneticsfiltered_5_All_parentterm_drugse_final.txt.gz', data.table=F)
+
+OT_pt_se=ot %>% filter(senomi_phase4 == 1 ) %>% distinct(parentterm)
+ot = subset(ot, (parentterm %in% OT_pt_se$parentterm ))
+
 onsides=fread('Data/Onsides_dataset_se.mi_withgeneticsfiltered_5_All_parentterm_drugse_final.txt.gz', data.table=F)
 ot$gene_parentterm=paste(ot$gene, '_',ot$parentterm)
 onsides$gene_parentterm=paste(onsides$gene, '_',onsides$parentterm)
@@ -1144,6 +1264,23 @@ venn.diagram(
   imagetype = "png",
   output = TRUE
 )
+
+
+source_data_export <- list("Figure 2a-b" = source_data_fig2,
+                           "Figure 3a-d" = source_data_fig3, 
+                           "Figure 4a-b" = source_data_fig4,
+                           "Figure 5a-b" = source_data_fig5, 
+                           "Figure 6" = source_data_fig6, 
+                           "Supplemental Figure 3" = source_data_sup3,
+                           "Supplemental Figure 4" = source_data_supfig4,
+                           "Supplemental Figure 5" = source_data_supfig5,
+                           "Supplemental Figure 10a-d" = source_data_sup10, 
+                           "Supplemental Figure 16a-b" = source_data_sup_fig16,
+                           "Supplemental Figure 17a-b" = source_data_sup_fig17)
+
+
+write.xlsx(source_data_export, paste0(source_data_dir,"/Source_data.xlsx"))
+
 
 
 end.time <- Sys.time()

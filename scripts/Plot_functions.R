@@ -15,15 +15,15 @@ create_forest_plot <- function(df, yvar, groupvar, shapevar, colorvar, ci_lower,
     geom_point(size = 2, aes(shape = .data[[shapevar]]), stroke = 1.5, position = position_dodge2(width =0.5)) +
     scale_shape_manual(values = shape_vals) + guides(shape = "none") +
     geom_linerange(aes(xmin = .data[[ci_lower]], xmax = .data[[ci_upper]]), color = 'black', position = dodge) +
-    xlab("Odds ratio") + ylab("") +
+    xlab("Odds ratio (95% CI)") + ylab("") +
     scale_y_discrete(limits = rev(levels(y_levels))) +
     geom_vline(xintercept = 1, linetype = 'longdash', color = 'red') +
-    theme(axis.text=element_text(size=14), axis.title=element_text(size=14),strip.text = element_text(size = 13))  +
     theme_classic() +
-    theme(axis.text = element_text(size = 12, color = "black"),
-          axis.title = element_text(size = 12, color = "black"),
+    theme(axis.text = element_text(size = 11, color = "black"),
+          axis.title = element_text(size = 11, color = "black"),
           axis.line = element_line(colour = 'black', size = 0.5),
           axis.ticks = element_line(colour = "black", size = 0.5),
+          strip.text = element_text(size = 13),
           axis.ticks.length = unit(0.25, "cm"))
   
   if (!is.null(coord_limit)) {
@@ -63,14 +63,32 @@ make_side_labels <- function(df, yvar, label, y_levels, size = 3.1, hjust_size) 
 }
 
 
-combine_plots <- function(fp, labels_plot, widths, legend = "bottom") {
-  combined_plot <- fp + plot_spacer() + labels_plot + plot_layout(widths = widths, guides = "collect") & 
-    theme(legend.position = legend, legend.box = "horizontal",legend.justification = "left")
-}
+combine_plots <- function(fp, labels_plot, widths, legend = "bottom", legend_title = NULL) {
+  
+  # Add legend title if provided
+  if (!is.null(legend_title)) {
+    fp <- fp + labs(color = legend_title)
+  }
+  
+  combined_plot <- fp + plot_spacer() + labels_plot + 
+    plot_layout(widths = widths, guides = "collect") & 
+    theme(
+      legend.position = legend,
+      legend.text = element_text(size = 11),
+      legend.title = element_text(size = 11),
+      
+      legend.box = "horizontal",
+      legend.title.position = "top",   # <-- Title above keys
+      legend.justification = "left"
+    ) &
+    guides(color = guide_legend(nrow = 1))
+  return(combined_plot)
+  
+  }
 
 
 # 0.3 increment plot with table underneath 
-plot_binned_or_with_table <- function(binned_gps2, dataset, drugs=NULL, plots_dir, title_PLT, score_plt, shape_vals, max_uci, filename) {
+plot_binned_or <- function(binned_gps2, dataset, drugs=NULL, plots_dir, title_PLT, score_plt, shape_vals, max_uci, filename=NULL) {
   
   # Format OR and CI values
   format_values <- function(x) {
@@ -99,11 +117,11 @@ plot_binned_or_with_table <- function(binned_gps2, dataset, drugs=NULL, plots_di
     coord_cartesian(ylim = c(0, max_uci), clip = 'off') +
     theme_classic() +
     theme(
-      axis.text.x = element_text(size = 13, angle = 45, vjust = 1, hjust = 1, color = "black"),
-      axis.text.y = element_text(color = "black", size = 13),
-      axis.title = element_text(size = 15, color = "black"),
-      legend.text = element_text(size = 13),
-      legend.title = element_text(size = 13),
+      axis.text.x = element_text(size = 11, angle = 45, vjust = 1, hjust = 1, color = "black"),
+      axis.text.y = element_text(color = "black", size = 11),
+      axis.title = element_text(size = 12, color = "black"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 12),
       axis.line = element_line(colour = 'black', size = 0.5),
       axis.ticks = element_line(colour = "black", size = 0.5),
       axis.ticks.length = unit(0.25, "cm"),
@@ -117,35 +135,37 @@ plot_binned_or_with_table <- function(binned_gps2, dataset, drugs=NULL, plots_di
       geom_segment(aes(x = genescoresum, xend = genescoresum, y = lowerCI, yend = upperCI_cut, color = OR),
                    arrow = arrow(length = unit(0.25, "cm")))
   }
+  return(plot1)
   
+  # if wanted to include table in output figure
   # Table for display
-  table_thres <- binned_gps2 %>%
-    distinct(genescoresum, Percentile, genes, parentterms, OR2, CI2, P.val) %>%
-    mutate(
-      Percentile = round(Percentile, 2),
-      `P-value` = sprintf("%.2e", P.val)
-    ) %>%
-    dplyr::rename(
-      `SE-GPS` = genescoresum,
-      OR = OR2,
-      CI = CI2,
-      Genes = genes,
-      Phenotypes = parentterms
-    )
+  # table_thres <- binned_gps2 %>%
+  #   distinct(genescoresum, Percentile, genes, parentterms, OR2, CI2, P.val) %>%
+  #   mutate(
+  #     Percentile = round(Percentile, 2),
+  #     `P-value` = sprintf("%.2e", P.val)
+  #   ) %>%
+  #   dplyr::rename(
+  #     `SE-GPS` = genescoresum,
+  #     OR = OR2,
+  #     CI = CI2,
+  #     Genes = genes,
+  #     Phenotypes = parentterms
+  #   )
+  # 
+  # g <- tableGrob(table_thres, rows = NULL, theme = ttheme_minimal(core = list(bg_params = list(fill = "white")),
+  #                                                                 colhead = list(bg_params = list(fill = "white"))))
+  # 
+  # g <- gtable_add_grob(g, grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+  #                      t = 2, b = nrow(g), l = 1, r = ncol(g))
+  # g <- gtable_add_grob(g, grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+  #                      t = 1, l = 1, r = ncol(g))
+  # 
+  # 
+  # # Save
+  # png(file = filename, width = 500, height = 600)
+  # grid.arrange(plot1, g, nrow = 2, heights = c(2, 1))
+  # dev.off()
   
-  g <- tableGrob(table_thres, rows = NULL, theme = ttheme_minimal(core = list(bg_params = list(fill = "white")),
-                                                                  colhead = list(bg_params = list(fill = "white"))))
-  
-  g <- gtable_add_grob(g, grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                       t = 2, b = nrow(g), l = 1, r = ncol(g))
-  g <- gtable_add_grob(g, grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                       t = 1, l = 1, r = ncol(g))
-  
-  
-  # Save
-  png(file = filename, width = 500, height = 600)
-  grid.arrange(plot1, g, nrow = 2, heights = c(2, 1))
-  dev.off()
-  
-  return(list(plot = plot1, table = table_thres, file = filename))
+    #return(list(plot = plot1, table = table_thres, file = filename))
 }
