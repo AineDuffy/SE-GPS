@@ -136,6 +136,9 @@ write.table(Sup_table_weights, paste0(tables_dir,'/Table_S1_Mixedmodel_',dataset
 opentarget_fulldataset<-fread(datafile, data.table=F)
 opentarget_fulldataset$gene_phenotype=paste0(opentarget_fulldataset$gene,'-',opentarget_fulldataset$parentterm)
 
+# OT_pt_se=opentarget_fulldataset %>% filter(senomi_phase4 == 1 ) %>% distinct(parentterm)
+# opentarget_fulldataset = subset(opentarget_fulldataset, (parentterm %in% OT_pt_se$parentterm ))
+
 lapply(c(paste0('CVsample',rep(1:5))), function(CVsample){
   
   mixedmodelresults=fread(paste0(scorefolder, '/Mixedeffect_weighted_model_ADR_severity_',dataset,'_outcome_',outcome,'_',CVsample,'.txt'), data.table=F)
