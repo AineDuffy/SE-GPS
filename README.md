@@ -12,7 +12,7 @@ This repository contains all the necessary scripts to generate the SE-GPS and th
 
 <h3> Data Access:</h3>
 The data required to run the scripts can be downloaded as a compressed folder (Data.zip) from the following Zenodo link:
- https://zenodo.org/records/15334136?preview=1&token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6ImY1ZWY3ZmVmLWM0YmEtNGM1YS1iZjkxLTgxYWJlMGM2OGM1MCIsImRhdGEiOnt9LCJyYW5kb20iOiJiZTI1ZTJjMjRkNGMxOWM5MmQ2OWY3ZjhmN2UwMjFiYSJ9.dGGnnoLIUVaXQ4VKndr8c2vayJRAC05b0caR7gakbUrncTP9fg1hnSVzP132KFKErSKBuRKhc32ONJJT8Wfbrw. 
+https://zenodo.org/records/15334136.
 
 After downloading, please extract the contents of Data.zip into the same directory as the scripts folder. This will create a Data/ folder that is accessed by the pipeline.
 
